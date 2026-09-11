@@ -42,11 +42,12 @@ REG_ROW_RE = re.compile(
     r"^\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|$"
 )
 
-# 门禁参数取自单一配置源 medillustration_config.yaml（P1-4 / P2-8）
+# 门禁参数取自单一配置源 medillustration_config（P1-4 / P2-8）
 try:
     from medillustration_config import load as _load_cfg
     _gate_cfg = (_load_cfg().get("gate") or {})
-except Exception:
+except Exception as _e:  # 配置缺失时回退默认，但不再静默
+    print(f"  ⚠️ 插图门禁配置加载失败({_e})，使用内置默认参数", file=sys.stderr)
     _gate_cfg = {}
 VOLUME_KB = int(_gate_cfg.get("volume_kb", 500))
 WEBP_ONLY = bool(_gate_cfg.get("webp_only", True))

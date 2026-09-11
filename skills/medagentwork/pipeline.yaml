@@ -16,8 +16,35 @@
 
 pipeline:
   name: "MedAgentWork 5-Agent 题库生产管线"
-  version: "2.0.0"
+  version: "2.1.0"
   created: "2026-06-24"
+
+# ═══════════════════════════════════════════════════════════
+# 阈值段 — 规则层与门禁层的「运行时单一事实来源」
+# ═══════════════════════════════════════════════════════════
+# v2.1 变更（评审 §6.4「风险」/ §七.7）：
+#   此前本文件声明 option_avg_max / bloom 阈值，但 rules_numeric.py、
+#   rules_structural.py、gate_check.py 里的阈值是硬编码的 —— 两边只靠"巧合一致"
+#   维持。现由 scripts/pipeline_config.py 在运行时读取本段（缺失回退内置默认，
+#   默认值与本段取值一致），改这里即可全局生效。
+#
+# 写法约束：本段必须保持「扁平 key: 值 / key: [行内列表]」两级以内结构，
+#   以便在未安装 PyYAML 的零依赖环境下由内置最小解析器读取。
+# ═══════════════════════════════════════════════════════════
+
+thresholds:
+  r2_ratio_fail: 2.0              # R2 正确选项/最短干扰项 长度比 ≥ 此值 → FAIL
+  r2_ratio_warn: 1.5              # R2 长度比 ≥ 此值 → WARN
+  option_length_max: 20           # R13 单选项字数 > 此值 → FAIL
+  option_avg_max: 18              # R13 选项平均字数 > 此值 → WARN
+  bloom_deviation_max: 15         # Bloom 单层偏差 > 此值(%) → BLOCKED
+  bloom_recompute_tolerance: 5    # 门禁独立重算 Bloom 与质检报告自述值的允许偏差(%)
+  # R8 短选项豁免词表（评审 §6.5-P1.5 / §七.9）：按科目叠加，替代原精神科硬编码。
+  # 题目带 subject 字段，或运行时设 MEDAGENTWORK_SUBJECT 环境变量即可生效。
+  r8_legit_terms_default: [妄想, 幻觉, 障碍, 减退, 缺乏, 低落, 焦虑, 恐惧, 躁狂, 抑郁, 木僵, 违拗, 缄默, 痴呆, 谵妄, 强迫, 疑病, 失眠, 嗜睡, 人格, 自知力, PTSD, OCD, AD]
+  r8_legit_terms_tcm: [气, 血, 津液, 阴阳, 表里, 寒热, 虚实, 风寒, 风热, 湿热, 痰浊, 瘀血, 气滞, 证, 脉, 舌]
+  r8_legit_terms_surgery: [术, 疝, 痔, 瘘, 瘤, 囊肿, 脓肿]
+  r8_legit_terms_psychiatry: [妄想, 幻觉, 木僵, 谵妄, PTSD, OCD, AD]
 
 # ═══════════════════════════════════════════════════════════
 # Stage 定义 — 每个阶段 = 一个 Agent + 门禁
@@ -197,13 +224,13 @@ global_slo:
 # ═══════════════════════════════════════════════════════════
 # 学科特性配置 (Feature Flags)
 # ═══════════════════════════════════════════════════════════
-
+# v2.1 清理（评审 §6.5-P2.6）：原 subjects 段携带 chunk_size / top_n /
+#   hybrid_search / keyword_weight 等 RAG 参数，但该 RAG 机制（知识库素材/search_kb.py）
+#   未随 skill 分发，属原项目遗留声明，容易误导使用者 —— 已移除。
+#   保留的 short_term_categories / option_length_ratio / protect_rules 是出题提示词
+#   实际会用到的学科特性；short_term_categories 同时驱动 thresholds.r8_legit_terms_*。
 subjects:
   internal-med:
-    chunk_size: 800
-    top_n: 7
-    hybrid_search: true
-    keyword_weight: 0.3
     protect_rules:
       - "风险评分量表不拆分"
       - "诊断分类标准不拆分"
@@ -211,10 +238,6 @@ subjects:
     option_length_ratio: 1.5
 
   surgery:
-    chunk_size: 1000
-    top_n: 5
-    hybrid_search: true
-    keyword_weight: 0.4
     protect_rules:
       - "手术步骤顺序保护"
       - "分期分型/TNM不拆分"
@@ -222,10 +245,6 @@ subjects:
     option_length_ratio: 1.5
 
   neurology:
-    chunk_size: 800
-    top_n: 5
-    hybrid_search: true
-    keyword_weight: 0.5
     protect_rules:
       - "综合征不拆分"
       - "传导通路不拆分"
@@ -234,10 +253,6 @@ subjects:
     option_length_ratio: 1.5
 
   psychiatry:
-    chunk_size: 500
-    top_n: 5
-    hybrid_search: true
-    keyword_weight: 0.3
     protect_rules:
       - "DSM/ICD诊断条目不拆分"
       - "评定量表不拆分"
@@ -245,10 +260,6 @@ subjects:
     option_length_ratio: 1.7
 
   pediatrics:
-    chunk_size: 600
-    top_n: 7
-    hybrid_search: true
-    keyword_weight: 0.3
     protect_rules:
       - "年龄正常值不拆分"
       - "发育里程碑不拆分"
@@ -257,10 +268,6 @@ subjects:
     option_length_ratio: 1.5
 
   tcm:
-    chunk_size: 500
-    top_n: 5
-    hybrid_search: true
-    keyword_weight: 0.6
     protect_rules:
       - "每方独立chunk"
       - "每药独立chunk"
@@ -269,20 +276,12 @@ subjects:
     option_length_ratio: 2.0        # 中医放宽: 脏腑1字 vs 方剂名7字
 
   dermatology:
-    chunk_size: 600
-    top_n: 5
-    hybrid_search: false
-    keyword_weight: 0
     protect_rules:
       - "皮损形态+分布三联组不拆分"
     short_term_categories: [药名缩写, 皮疹类型缩写]
     option_length_ratio: 1.5
 
   doctor-patient:
-    chunk_size: 800
-    top_n: 3
-    hybrid_search: false
-    keyword_weight: 0
     protect_rules:
       - "法律条文不拆分"
       - "沟通模型步骤不拆分"
@@ -290,10 +289,6 @@ subjects:
     option_length_ratio: 1.5
 
   tcm-psychology:
-    chunk_size: 500
-    top_n: 5
-    hybrid_search: true
-    keyword_weight: 0.45
     protect_rules:
       - "证型辨证论治不拆分"
       - "情志相胜配对不对拆分"
@@ -301,86 +296,54 @@ subjects:
     option_length_ratio: 2.0
 
 # ═══════════════════════════════════════════════════════════
-# 管线恢复 Runbook (Automated Playbooks)
+# 故障处置（Runbook）
 # ═══════════════════════════════════════════════════════════
-
+# v2.1 清理（评审 §6.5-P2.6）：原 runbook.patterns 引用的 healthcheck.py /
+#   runbook.py / maintenance.py / sync_tools.py 均属原项目跨工作区运维脚本，
+#   未随 skill 分发 —— 已移除，避免"声明了但跑不起来"。
+#   skill 版保留的故障处置语义如下（全部由已分发脚本实现）。
 runbook:
-  # 故障模式 → 自动修复映射
-  patterns:
-    - symptom: "workflow_state 缺少 AGENT3/AGENT4 步骤记录"
-      detection: "healthcheck.py 或 gate_check.py"
-      auto_fix: "从顶层 qc_result/agent4_result 字段补写 steps 块"
-      script: "scripts/runbook.py --fix missing-steps"
-
-    - symptom: "批次目录不在 workflow_state 中 (孤立批次)"
-      detection: "healthcheck.py C1-orphan"
-      auto_fix: "检测中间产物目录 → 自动补录 workflow_state 最小记录"
-      script: "scripts/runbook.py --fix orphan-batch"
-
-    - symptom: "clean/ Prompt 与 current 不同步"
-      detection: "healthcheck.py E2-outdated"
-      auto_fix: "从 current 版本覆盖 clean/ 副本"
-      script: "scripts/maintenance.py --task prompts"
-
-    - symptom: "根目录散落 validate_options_report_*.json"
-      detection: "healthcheck.py D2-root"
-      auto_fix: "全部移入 reports/"
-      script: "scripts/maintenance.py --task cleanup"
-
-    - symptom: "gate_check.py 发现 GATE-A2 BLOCKED (validate FAIL > 0)"
-      detection: "gate_check.py"
-      auto_fix: false              # 不可自动修复，需 Agent 2 修正后重新生成
-      escalation: "通知用户: Agent 2 产出未达标，需修正后重跑"
-
-    - symptom: "gate_check.py 发现 GATE-A3 BLOCKED (D20=0 或 Bloom>15%)"
-      detection: "gate_check.py"
-      auto_fix: false              # 不可自动修复，需回退 Agent 2 重构
-      escalation: "通知用户: 质检门禁阻断，需回退 Agent 2 重构"
-
-    - symptom: "跨工作区 CONTEXT.md 工具表不一致"
-      detection: "scripts/maintenance.py --task cross"
-      auto_fix: "以 MedAgentWork 为基准同步所有工作区"
-      script: "scripts/sync_tools.py"
-
-  # 严重级别
   severities:
-    P0_BLOCK: [GATE-A2, GATE-A3, GATE-A4]    # 阻断管线
-    P1_WARN: [orphan-batch, prompt-desync, cross-sync]  # 不阻断但需修复
-    P2_INFO: [root-pollution]                            # 不影响功能
+    P0_BLOCK: [GATE-A2, GATE-A3, GATE-A4]   # 阻断管线，必须修复后重跑
+    P1_WARN: []                             # skill 版无自动修复项，见下方处置说明
+    P2_INFO: []
+  handling:
+    - symptom: "GATE-A2 BLOCKED (validate FAIL > 0)"
+      detection: "gate_check.py --stage agent2_done"
+      auto_fix: false
+      action: "回退 MedGen 修正题库 JSON 后重跑 validate_options.py，再跑 gate_check.py --clear-halt"
+    - symptom: "GATE-A3 BLOCKED (D20=0 / Bloom 偏差超限 / Bloom 自述与重算不一致)"
+      detection: "gate_check.py --stage agent3_done"
+      auto_fix: false
+      action: "回退 MedQC 复核质检报告，或回退 MedGen 重构题目结构"
+    - symptom: "GATE-A4 BLOCKED (source_file_synced != true / 复检 FAIL > 0)"
+      detection: "gate_check.py --stage agent4_done"
+      auto_fix: false
+      action: "回退 MedFix 补齐追溯日志与源文件同步后重跑"
+    - symptom: "GATE-FINAL BLOCKED (HC-9/10/11 或 JSON 完整性)"
+      detection: "gate_check.py --stage final"
+      auto_fix: false
+      action: "回退 MedReview 修正术语附录/页码标注后重跑"
+    - symptom: "workflow_state 缺少 AGENT3/AGENT4 步骤记录"
+      detection: "gate_check.py fail-closed 分支"
+      auto_fix: false
+      action: "由 MedMaster 按 references/runbook.md 用 workflow_state.py 补写步骤块（禁手改 JSON，HC-17）"
 
 # ═══════════════════════════════════════════════════════════
-# 组卷公式 (Paper Assembly) — 2026-08-21 · v1.1 已接入管线（DSH 待办 #6 完成）
-# 实现: scripts/paper_builder.py（--dry-run 预览）
-# 组卷权重 = 考频权重(blueprint) × 难度配平(calibrated_p) × NFD 过滤
-# v1.1 接线（《交接终审报告_20260821.md》§四 #6）：
-#   - 难度主源 = question_bank/calibrated_difficulty.expanded.jsonl（按 qid 覆盖 registry）
-#   - MedQC 复检处置（reports/conflict_recheck_20260821.json）接入：
-#       anchor_prior_conflict 题 KEEP_PRIOR→入卷按先验 / KEEP_ANCHOR→入卷按融合 /
-#       FLAG_MEDFIX/UNCERTAIN/无处置→排除（当前 2 题 Wallenberg 定位题被排除，待 MedFix）
-#   - 卷面 P 目标带 [0.55, 0.65]；CMExam 源偏易（avg_p≈0.68）→ 配平向 hard 侧偏移
-# 运行示例:
-#   python scripts/paper_builder.py --all --count 60 --dry-run
-#   python scripts/paper_builder.py --subject 内科学 --count 100
+# 组卷公式 (Paper Assembly) — 【本 skill 版不包含】
 # ═══════════════════════════════════════════════════════════
-
+# v2.1 清理（评审 §6.5-P2.6）：原段声明的 scripts/paper_builder.py 及
+#   question_bank/calibrated_difficulty*.jsonl 难度校准数据均未随 skill 分发，
+#   且依赖用户自备的真题数据。此处仅保留设计说明，供需要者自行实现。
 paper_assembly:
-  script: "scripts/paper_builder.py"
-  version: "v1.1 (2026-08-21)"
-  formula: "考频权重(blueprint.by_subject.refs 归一化 + top_referenced 高频真题命中 ×1.5) × 置信度权重(high 1.0/medium 0.7/low 0.4) × NFD 过滤"
-  difficulty_source: "question_bank/calibrated_difficulty.expanded.jsonl（按 qid 覆盖 registry 校准五字段 + anchor_source）"
-  hard_filters:
-    - "NFD≥2（源 JSON non_functioning_distractors）不入卷"
-    - "calibration_flag=anchor_prior_conflict 且 MedQC 处置非 KEEP_*（FLAG_MEDFIX/UNCERTAIN/无记录）不入正式卷"
-  medqc_recheck: "reports/conflict_recheck_20260821.json — KEEP_PRIOR→p=prior_p；KEEP_ANCHOR→p=expanded 融合值"
-  targets:
-    paper_p: [0.55, 0.65]        # 卷面 P = mean(calibrated_p)，目标区间
-    hard_bias: "CMExam 源偏易 0.02-0.03 → 难度配平向 hard 侧偏移（替换时优先换入低 p 题）"
-    high_freq_min_ratio: 0.6     # 高考频章节/考点题量 ≥60%（章节级待 E-1b 后按章节执行）
-    low_freq_min_ratio: 0.2      # 20% 低频防裸奔
-    answer_balance: "A/B/C/D 贪心纠偏，目标均匀 ≤25%±5%"
-  type_weights: {A1: 0.40, A2: 0.25, A3: 0.15, B1: 0.10, X: 0.10}
-  output: "最终产物/押题卷_{subject}_{N}题.json（兼容 scripts/quiz_template.html QUESTIONS 数组）"
-  report: "reports/paper/paper_{subject}_{N}_{ts}.json"
+  distributed: false
+  note: "组卷器（paper_builder.py）与难度校准数据未随 skill 分发；如需组卷请自行实现，或直接使用 render_qbank_html.py 输出题库 HTML。"
+  design_reference:
+    formula: "考频权重(blueprint) × 难度配平(calibrated_p) × NFD 过滤"
+    targets:
+      paper_p: [0.55, 0.65]
+      answer_balance: "A/B/C/D 贪心纠偏，目标均匀 ≤25%±5%"
+    type_weights: {A1: 0.40, A2: 0.25, A3: 0.15, B1: 0.10, X: 0.10}
 
 # ═══════════════════════════════════════════════════════════
 # 可观测性 (Observability)

@@ -2,14 +2,34 @@
 engine.py — 主校验引擎
 从 validate_options.py 拆分而来
 """
+import os
+import sys
 from pathlib import Path
 from .rules_numeric import BASIC_NUMERIC_CHECKS
 from .rules_structural import STRUCTURAL_CHECKS, check_b1_groups, check_js1_json_integrity, check_s3_placeholder_pages
 
+# v1.1 修复（评审 §6.5-P1.2）：原 `from scripts.telemetry import ...` 指向包内
+# 不存在的模块，且 scripts 并非可导入包 —— 属原项目残留死依赖，同时把真实
+# ImportError 一并吞掉。现补齐 telemetry.py 并改为按同目录导入；若确实缺失，
+# 打印警告（不再静默），但不阻断校验主流程。
+_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
 try:
-    from scripts.telemetry import log_validation, log_info, log_error
+    from telemetry import log_validation, log_info, log_error
     TELEMETRY_AVAILABLE = True
-except ImportError:
+except ImportError as _e:
+    print(f"  ⚠️ telemetry 模块不可用({_e})，事件日志已跳过（不影响校验结果）", file=sys.stderr)
+
+    def log_validation(*a, **k):
+        pass
+
+    def log_info(*a, **k):
+        pass
+
+    def log_error(*a, **k):
+        pass
+
     TELEMETRY_AVAILABLE = False
 
 BASE = Path.cwd()

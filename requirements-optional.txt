@@ -1,0 +1,23 @@
+# MedAgentWork Skill — 可选依赖清单
+#
+# 核心管线（validate_options / gate_check / workflow_state / qbank / fact_check /
+# bloom_sampler / kaoyan_picker / render_qbank_html / render_review / contract_check）
+# 只依赖 Python 标准库，无需安装任何东西。
+#
+# 本文件仅列出「可选增强」所需的第三方包。按需安装：
+#     pip install -r requirements-optional.txt
+#
+# 说明（评审 §6.5-P2.9：可选依赖原先只散落在 README 与 SKILL.md 文字里）
+
+# ── 插图四件套（render_diagram / annotate_image / export_webp / compose_atlas）──
+# 仅在启用「插图阶段」时需要。Pillow 负责图像处理，PyYAML 负责读标注配置与 pipeline.yaml。
+Pillow>=10.0
+PyYAML>=6.0
+
+# ── 契约校验（contract_check.py）──
+# 缺失时自动跳过 schema 校验（不阻断管线），装上后可校验 agent2/3/4 产物契约。
+jsonschema>=4.0
+
+# ── 中文分词（R10 / R11 结构规则的精度增强）──
+# 缺失时规则回退到 n-gram 滑窗（仍可用，但关键词抽取精度略低）。
+jieba>=0.42

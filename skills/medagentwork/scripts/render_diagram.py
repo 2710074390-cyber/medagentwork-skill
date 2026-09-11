@@ -107,17 +107,18 @@ PALETTE = {
 }
 DEFAULT_COLOR = 'blue'
 
-# ---- 读取单一配置源（medillustration_config.yaml）覆盖默认常量（P1-4 / P2-8）----
+# ---- 读取单一配置源（medillustration_config）覆盖默认常量（P1-4 / P2-8）----
+# 字体改为跨平台探测（评审 §6.5-P1.3）：config 未显式指定时用 fonts() 自动探测结果，
+# 而不是保留上面的 Windows 硬编码路径。
 try:
-    from medillustration_config import load as _load_cfg
+    from medillustration_config import load as _load_cfg, fonts as _fonts_cfg
     _cfg = _load_cfg()
     if _cfg:
         _fnt = _cfg.get('fonts') or {}
         _cv = _cfg.get('canvas') or {}
-        if _fnt.get('bold'):
-            FONT_BOLD = _fnt['bold']
-        if _fnt.get('regular'):
-            FONT_REG = _fnt['regular']
+        _detected = _fonts_cfg() or {}
+        FONT_BOLD = _fnt.get('bold') or _detected.get('bold') or FONT_BOLD
+        FONT_REG = _fnt.get('regular') or _detected.get('regular') or FONT_REG
         if _cv.get('png_width'):
             CANVAS_W = int(_cv['png_width'])
         if _cv.get('webp_width'):

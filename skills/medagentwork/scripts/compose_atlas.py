@@ -62,6 +62,18 @@ FONT_REG = r'C:\Windows\Fonts\msyh.ttc'
 CANVAS_W = 2048
 WEBP_W = 1600
 WEBP_Q = 82
+
+# 字体跨平台探测（评审 §6.5-P1.3）：config/环境变量 > 平台候选列表 > 上面的默认值
+try:
+    from medillustration_config import fonts as _fonts_cfg, canvas as _canvas_cfg
+    _detected = _fonts_cfg() or {}
+    FONT_BOLD = _detected.get('bold') or FONT_BOLD
+    FONT_REG = _detected.get('regular') or FONT_REG
+    _cv = _canvas_cfg() or {}
+    WEBP_W = int(_cv.get('webp_width', WEBP_W))
+    WEBP_Q = int(_cv.get('webp_quality', WEBP_Q))
+except Exception as _e:
+    print(f"[compose_atlas] 插图配置加载失败，使用默认常量：{_e}")
 MARGIN = 56
 GAP = 32
 CAP_GAP = 14

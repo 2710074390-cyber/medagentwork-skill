@@ -23,6 +23,7 @@
   exit 2 = GATE_FAIL（脚本/数据错误）
 """
 import sys, json, re, argparse, subprocess
+from collections import Counter
 from pathlib import Path
 from datetime import datetime
 
@@ -36,11 +37,27 @@ WORKSPACE = Path.cwd()
 sys.path.insert(0, str(BASE))
 import workflow_state as ws
 
-# 集成 telemetry 模块（2026-09-09 新增）
+# pipeline.yaml 阈值单一事实来源（评审 §6.4 / §七.7）
+from pipeline_config import get_number
+
+# v1.1 修复（评审 §6.5-P1.2）：原 `from scripts.telemetry import ...` 指向包内
+# 不存在的模块（且 scripts 非可导入包），靠 except ImportError 静默降级 —— 死依赖。
+# 现补齐 telemetry.py 并改为按同目录导入（BASE 已在 sys.path 中）。
 try:
-    from scripts.telemetry import log_gate_check, log_info, log_error
+    from telemetry import log_gate_check, log_info, log_error
     TELEMETRY_AVAILABLE = True
-except ImportError:
+except ImportError as _e:
+    print(f"  ⚠️ telemetry 模块不可用({_e})，事件日志已跳过（不影响门禁结果）", file=sys.stderr)
+
+    def log_gate_check(*a, **k):
+        pass
+
+    def log_info(*a, **k):
+        pass
+
+    def log_error(*a, **k):
+        pass
+
     TELEMETRY_AVAILABLE = False
 
 
@@ -225,6 +242,73 @@ def find_qc_report(batch_id):
         for f in sorted(report_dir.glob(f'{batch_id}*质检报告*.json')):
             return f
     return None
+
+
+# ── Bloom 独立重算（评审 §七.14）──
+_BLOOM_LEVELS = ['记忆', '理解', '应用', '分析']
+_BLOOM_ALIASES = {
+    '记忆': '记忆', '回忆': '记忆', '识记': '记忆', '记忆型': '记忆',
+    '理解': '理解', '领会': '理解', '理解型': '理解',
+    '应用': '应用', '运用': '应用', '应用型': '应用',
+    '分析': '分析', '综合': '分析', '评价': '分析', '分析型': '分析',
+}
+_TYPE_DEFAULT_BLOOM = {'A1': '记忆', 'A2': '应用', 'B1': '理解', 'A3': '分析', 'A4': '分析'}
+
+
+def find_question_bank(batch_id):
+    """定位批次题库 JSON（用于 Bloom 独立重算）。"""
+    for base in (WORKSPACE / '最终产物' / batch_id, WORKSPACE / '中间产物' / batch_id):
+        if not base.is_dir():
+            continue
+        for name in ('ALL_questions_FIXED.json', 'ALL_questions.json'):
+            f = base / name
+            if f.exists():
+                return f
+        cands = sorted(base.glob('ALL_questions*.json'))
+        if cands:
+            return cands[-1]
+    return None
+
+
+def recompute_bloom_from_qbank(batch_id):
+    """从题库 JSON 独立重算 Bloom 分布，返回 (distribution|None, error|None)。
+
+    门禁此前只读 A3_质检报告.json 里 LLM 自述的 bloom_distribution —— 属"数据来源
+    仍是 LLM 自述"。本函数用题目自带的 bloom_level 字段（缺失时按题型映射兜底）
+    机械重算，供门禁与自述值交叉验证。
+    """
+    qb = find_question_bank(batch_id)
+    if not qb:
+        return None, '未找到题库 JSON'
+    try:
+        data = json.loads(qb.read_text(encoding='utf-8'))
+    except Exception as e:
+        return None, f'题库 JSON 解析失败: {e}'
+
+    if isinstance(data, list):
+        questions = data
+    elif isinstance(data, dict):
+        questions = data.get('questions') or data.get('items') or []
+    else:
+        questions = []
+    if not questions:
+        return None, '题库为空'
+
+    counter = Counter()
+    for q in questions:
+        if not isinstance(q, dict):
+            continue
+        raw = q.get('bloom') or q.get('bloom_level') or q.get('cognitive_level')
+        level = _BLOOM_ALIASES.get(str(raw).strip()) if raw else None
+        if not level:
+            level = _TYPE_DEFAULT_BLOOM.get(str(q.get('type', '')).strip())
+        if level:
+            counter[level] += 1
+
+    total = sum(counter.values())
+    if total == 0:
+        return None, '题库中无可用 bloom_level 字段'
+    return {lv: round(counter.get(lv, 0) / total * 100, 1) for lv in _BLOOM_LEVELS}, None
 
 
 # ═══════════════════════════════════════
@@ -461,8 +545,8 @@ def gate_agent3(batch_id, batch_data):
 
     # ── Bloom 门禁检查 ──
     bloom_issues = []
+    actual = {}
     if bloom_data:
-        actual = {}
         for key in ['记忆', '理解', '应用', '分析']:
             val = bloom_data.get(key, '0%')
             if isinstance(val, str):
@@ -477,15 +561,52 @@ def gate_agent3(batch_id, batch_data):
             deviations[key] = abs(actual.get(key, 0) - target_bloom.get(key, 0))
 
         max_dev = max(deviations.values())
+        bloom_max = get_number('bloom_deviation_max', 15)  # 阈值取自 pipeline.yaml
 
-        if max_dev > 15:
+        if max_dev > bloom_max:
             dev_detail = ', '.join(f'{k}=Δ{deviations[k]:.1f}%' for k in sorted(deviations, key=deviations.get, reverse=True)[:2])
             bloom_issues.append({
                 'gate_sub': 'GATE-A3-BLOOM',
                 'status': 'BLOCKED',
-                'reason': f'Bloom认知层级偏差{max_dev:.1f}% > 15%阈值（{dev_detail}）。必须回退Agent 2重构。',
+                'reason': f'Bloom认知层级偏差{max_dev:.1f}% > {bloom_max:g}%阈值（{dev_detail}）。必须回退Agent 2重构。',
                 'rule': 'Bloom门禁规则 (batch011教训: 记忆54.1%未阻断)',
             })
+
+    # ── Bloom 独立重算交叉验证（评审 §七.14）──
+    # 上面 bloom_data 取自 A3_质检报告.json —— 属 LLM 自述数据。此处用题库 JSON
+    # 独立重算一遍 Bloom 分布，两者偏差超过容忍度即 BLOCKED。
+    # 这把 Bloom 门禁从"读 LLM 自述"升级为"确定性重算 + 自述交叉验证"。
+    recompute_issues = []
+    recomputed, recompute_err = recompute_bloom_from_qbank(batch_id)
+    recompute_tolerance = get_number('bloom_recompute_tolerance', 5)
+    if recomputed and bloom_data:
+        mismatch = {lv: abs(recomputed.get(lv, 0) - actual.get(lv, 0)) for lv in _BLOOM_LEVELS}
+        worst = max(mismatch.values()) if mismatch else 0.0
+        if worst > recompute_tolerance:
+            detail = ', '.join(
+                f'{lv} 自述{actual.get(lv, 0):.1f}%/重算{recomputed.get(lv, 0):.1f}%'
+                for lv in _BLOOM_LEVELS if mismatch[lv] > recompute_tolerance
+            )
+            recompute_issues.append({
+                'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
+                'status': 'BLOCKED',
+                'reason': (f'Bloom 分布自述值与题库重算值最大偏差 {worst:.1f}% > '
+                           f'{recompute_tolerance:g}%（{detail}）。质检报告 Bloom 数据与题库不一致，不可放行。'),
+                'rule': 'Bloom 独立重算交叉验证（评审 §七.14）',
+            })
+        else:
+            recompute_issues.append({
+                'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
+                'status': 'PASS',
+                'reason': f'Bloom 自述值与题库重算值最大偏差 {worst:.1f}% ≤ {recompute_tolerance:g}%，交叉验证通过',
+            })
+    else:
+        # 题库缺失时不阻断（fail-closed 已由 NO-BLOOM 覆盖），仅记录可诊断信息
+        recompute_issues.append({
+            'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
+            'status': 'SKIPPED',
+            'reason': f'无法独立重算 Bloom（{recompute_err or "无 bloom_data"}），已跳过交叉验证',
+        })
 
     # ── v2.0 (2026-08-20 审查修复): fail-closed —— 无证据不放行 ──
     # 与 GATE-A2"无报告即 BLOCKED"对齐（此前空壳 AGENT3 步骤无任何 QC 数据也判 PASS）。
@@ -510,7 +631,7 @@ def gate_agent3(batch_id, batch_data):
         })
 
     # ── 汇总 GATE-A3 结果 ──
-    sub_results = d20_issues + bloom_issues + evidence_issues
+    sub_results = d20_issues + bloom_issues + recompute_issues + evidence_issues
     blocked_subs = [r for r in sub_results if r['status'] == 'BLOCKED']
 
     if blocked_subs:

@@ -9,6 +9,10 @@ description: 医学题库生产管线（五阶段 Agent 工作流：出题→质
 
 本 skill 由 MedAgentWork 原项目转化而来，核心管线**零第三方依赖**（纯 Python 标准库），开箱即用。
 
+> ⚠️ **两个前置条件（评审 §七.13 / §七.16）**
+> 1. **数据需自备**：本 skill 只含**机制**不含**数据** —— 没有真题、教材、图谱。金标准（`GoldenSet/`）由你手动维护；无金标准时管线会走「降级模式」（见 §6）。
+> 2. **生图能力需自备**：插图阶段（可选）的图片生成依赖**外部图片 Agent**（原「豆包」链路未随包分发）。没有该能力时请**跳过插图阶段**，其余阶段完全不受影响。
+
 ## 1. 运行模型（先读）
 
 两个目录，职责分离：
@@ -25,7 +29,9 @@ cd <你的工作区>
 python {SKILL}/scripts/validate_options.py --batch batch001
 ```
 
-依赖：核心管线（validate/gate/state/qbank/fact_check/bloom/kaoyan/render）**零依赖**；插图四件套（render_diagram/annotate_image/export_webp/compose_atlas）需 `pip install Pillow PyYAML`。
+依赖：核心管线（validate/gate/state/qbank/fact_check/bloom/kaoyan/render）**零依赖**；插图四件套（render_diagram/annotate_image/export_webp/compose_atlas）需 `pip install Pillow PyYAML`。完整的可选依赖清单见仓库根目录 `requirements-optional.txt`。
+
+**阈值调参**：所有可调阈值（选项长度上限、Bloom 偏差上限、R8 豁免词表等）集中在 `pipeline.yaml` 的 `thresholds:` 段，由 `scripts/pipeline_config.py` 在运行时读取（缺失回退内置默认）。改配置即全局生效，**不需要改 Python 代码**。
 
 ## 2. 工作区初始化（首次使用）
 
@@ -56,6 +62,7 @@ cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scrip
 ```
 
 - 门禁 BLOCKED → **halt** → 回退对应角色修复 → 重跑门禁（不可跳过）
+- **插图阶段（可选）需自备生图能力**：图片生成由**外部图片 Agent** 执行（原「豆包」链路未随包分发），本 skill 只产出「占位符 + 配图清单」。没有该能力时**直接跳过此阶段**，不影响其余流程与门禁。
 - 每个阶段的完整角色手册在 `references/`，**进入该阶段前必读对应手册**：
   - `references/runbook.md` — 批次生命周期/门禁命令/目录规范/故障处置（编排必读）
   - `references/medmaster.md` — 编排规则与调用指令模板
@@ -101,6 +108,8 @@ python {SKILL}/scripts/fact_check.py pages --file 中间产物/{batchID}/ALL_que
 # 金标准配额（真题占比，HC-18）
 python {SKILL}/scripts/kaoyan_picker.py pick --subject {科目} --keywords "..." --target {题数×0.2} --out 中间产物/{batchID}/kaoyan_candidates.json
 python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json   # 占比≥15% 通过
+# 确无金标准时（降级模式，会在报告中留痕 degraded=true）：
+python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json --golden-absent
 
 # MD 导出（最终交付格式）
 python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batchID}/ALL_questions_FIXED.json --out 最终产物/{batchID}/ALL_questions_FIXED.md --title "{科目}·{模块}（{batchID}）"
@@ -119,6 +128,11 @@ python {SKILL}/scripts/check_inline_images.py --md 复习资料/{科目}教学�
 
 门禁报告输出在 `reports/validate/` 与 `reports/gate/`。
 
+> **GATE-A3 的两条 Bloom 检查**：① 自述偏差 ≤ `bloom_deviation_max`（默认 15%）；
+> ② **独立重算交叉验证** —— 门禁会用题库 JSON 重算 Bloom 分布，与质检报告自述值比对，
+> 偏差 > `bloom_recompute_tolerance`（默认 5%）即 BLOCKED（评审 §七.14 加固）。
+> 子门禁 ID 为 `GATE-A3-BLOOM` 与 `GATE-A3-BLOOM-RECOMPUTE`。
+
 ## 6. 交付格式契约（HC-18）
 
 | 产物 | 交付格式 | 说明 |
@@ -130,6 +144,20 @@ python {SKILL}/scripts/check_inline_images.py --md 复习资料/{科目}教学�
 - 复习资料 MD 附录必含：教材页码索引（真实页码禁占位）、术语同意异名对照表
 - 复习资料 MD 仅用：h1-h6/表格/粗斜体/代码块/Obsidian Callout/`<details open>`/列表/hr；加粗用 `<b>`（导出兼容 E1-E3）
 
+### 6.1 金标准（GoldenSet）冷启动与降级模式
+
+HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py check` 判定），而 `GoldenSet/` 只允许用户手动维护。**没有自备真题的用户会卡在第一条 HC-18 门禁上**——这是本 skill 已知的最高门槛，因此显式定义降级路径：
+
+| 情形 | 处理 |
+|---|---|
+| **有金标准**（推荐） | 把真题/权威题库放入 `GoldenSet/`；`kaoyan_picker.py pick` 按 20% 配额选题，`fact_check.py golden` 100% 比对答案 |
+| **无金标准 · 首批** | 走**降级模式**：跳过 `kaoyan_picker pick`，并在 `kaoyan_picker check` 时**显式加 `--golden-absent`**。该模式会在报告里留痕 `degraded: true` + `golden_status: "absent(降级)"`，并打印醒目警告。**不加该参数时默认仍 fail-closed（占比不足即 FAIL）** —— 降级必须由操作者主动声明，不会悄悄放行。降级批次**没有金标准兜底**，答案正确性完全依赖 MedQC + 人工签收 |
+| **无金标准 · 后续批次** | 建议先把已签收的高质量题（或公开指南衍生的自测题）**人工**移入 `GoldenSet/`，再开启金标准机制。可从 `assets/golden_set_template.json` 起步 |
+
+**最小可用金标准模板**：见 `assets/golden_set_template.json`（10–20 题即可生效）。字段与 `kaoyan_picker.py --upper/--lower` 期望的输入一致：`gs_id` / `year` / `question_no` / `type` / `stem` / `options` / `answer` / `explanation` / `subject` / `source_file`。默认路径约定为 `GoldenSet/structured/GS_上册_*.json`（题干）+ `GoldenSet/structured/GS_下册_*.json`（答案解析）。
+
+> 降级模式是**有意识的取舍**，不是"门禁失效"：它明确告诉你"这批没有金标准兜底"，而不是悄悄放行。
+
 ## 7. 关键设计（为什么这样做）
 
 - **门禁即防线**：LLM 自检不可信，一切质量判定交给确定性脚本（5 起管线绕过教训的结论）
@@ -138,6 +166,28 @@ python {SKILL}/scripts/check_inline_images.py --md 复习资料/{科目}教学�
 - **结构模板优于字数约束**：选项长度靠「每题选项共享相同语法结构」而非 min/max 字数（3 次振荡教训）
 - **NBME 反套路**：R10 词重复线索 / R11 收敛策略 / R2 长度比等机械化检测，防 LLM 出题的隐性泄题
 - **补丁溯源**：修复聚合文件必须同步源文件（HC-13），追溯日志 `source_file_synced` 强制
+- **配置即事实来源**：所有阈值集中在 `pipeline.yaml` 的 `thresholds:` 段，由 `scripts/pipeline_config.py` 运行时读取（零依赖，缺失回退默认）——改配置即全局生效，不再有"声明与实现双轨"
+- **Bloom 独立重算**：门禁不采信质检报告的 LLM 自述分布，而是从题库 JSON 重算并交叉验证（偏差 > 5% 即 BLOCKED）——把 Bloom 门禁从"读 LLM 自述"升级为"确定性重算"
+- **规则命中有测试**：冒烟测试不仅验"脚本可执行"，还断言 R1–R13/JS1 每条规则**真的被触发**（防止 R1 那类死代码再次溜过）
+
+## 7.1 门禁保证什么、不保证什么（边界声明，必读）
+
+**这是本 skill 最容易被高估的一处**：过了门禁 ≠ 题目在临床上正确。请严格区分两层质量。
+
+| | 门禁（确定性脚本） | MedQC（LLM）+ 人工签收 |
+|---|---|---|
+| **保证** | ✅ 形式合规：长度/单位/重复词/分布/JSON 结构/文件存在性/契约字段 | ✅ 语义质量：答案在临床上对不对、解析是否自洽 |
+| **不保证** | ❌ 不判断临床正确性、不判断解析是否成立、不判断题目是否有教学价值 | ❌ 不保证机械规则全过（仍需跑门禁） |
+| **证据来源** | 脚本重算题库数据（**确定性**） | 质检报告中的 LLM 自评（**自述数据**） |
+
+具体说明：
+
+- 门禁判定的是**形式质量**。R1–R13 检查的是选项长度、单位缺失、重复词、认知层级分布等**可机械判定**的特征，它无法判断"这道题选 A 对不对"。
+- `GATE-A3` 的 **D20 分数**读自 `A3_质检报告.json`，仍属 LLM 自述；门禁只保证「字段存在且非 0」（fail-closed），不保证分数真实。
+- `GATE-A3` 的 **Bloom 分布**已做加固（v2.1）：门禁会用题库 JSON **独立重算** Bloom 分布，与质检报告自述值交叉验证，偏差 > `bloom_recompute_tolerance`（默认 5%）即 BLOCKED。这条堵住了"LLM 填一个漂亮的分数"，但**只有 Bloom 这一维**做了重算。
+- **答案正确性的最终责任人是你（人工签收）**。金标准比对（`fact_check.py golden`）只能覆盖有真题的那 20% 配额。
+
+一句话：**门禁是"防呆"，不是"防错"。它挡得住格式崩坏与自述造假，挡不住内容本身是错的。**
 
 ## 8. 与原版的差异（缩减说明）
 
@@ -150,6 +200,8 @@ python {SKILL}/scripts/check_inline_images.py --md 复习资料/{科目}教学�
 | MedKit 桌面生成器 | 不含（独立仓库） |
 | DSH subagent 编排 | 通用化：单会话顺序执行各阶段（宿主支持 subagent 时可并行） |
 | 跨工作区运维（maintenance/healthcheck） | 不含（原项目专属运维） |
+| 组卷器（paper_builder.py）与难度校准数据 | 不含（依赖用户自备真题；`pipeline.yaml` 中仅留设计说明） |
+| `pipeline.yaml` 中的 RAG / 运维脚本声明 | 已清理（v2.1）：移除未分发的 `chunk_size/top_n/hybrid_search` 与 `runbook.patterns` 脚本引用，改为只声明真实存在的能力 |
 
 ## Boundaries
 

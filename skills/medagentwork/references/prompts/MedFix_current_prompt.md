@@ -1,10 +1,10 @@
 > [!NOTE] 环境适配说明（skill 分享版）
-> 本提示词原样保留自 MedAgentWork 原项目（多 Agent 工作区时代）。在本 skill 中使用时注意：
-> - 文中 `知识库素材/search_kb.py` 等 RAG 检索入口未随 skill 分发——需要教材原文时改读工作区 `输入素材/` 下用户文件，或使用宿主 agent 的检索能力
-> - 文中 `.dsh/skills/` 路径对应本 skill 的 `references/`
-> - 文中 `Prompt版本/` 即本目录；`CONTEXT.md`/`SOUL.md` 对应 `references/hard-constraints.md` 与 `references/runbook.md`
-> - 文中提到的具体会话/窗口交互细节，按当前宿主 agent 环境理解（子代理调用 = 宿主的 subagent/task 机制，或单会话顺序执行）
-> - 科目代码（RAG --subject 参数）等本地配置仅作参考，按你的工作区实际配置
+> 本提示词原样保留自 MedAgentWork 原项目的多 Agent 工作区时代。在本 skill 中使用时注意：
+> - **路径已按分享版清洗**：原 `.dsh/skills/` → `references/`；原 `知识库素材/` → 工作区 `输入素材/`；原 `subject_config.json` → `pipeline.yaml`。
+> - **RAG 检索未随包分发**：原 `知识库素材/search_kb.py` 已移除；需要教材原文时改读 `输入素材/` 下用户文件，或使用宿主 agent 的检索能力。
+> - **生图需自备能力**：图片生成依赖外部图片 Agent（原「豆包」链路未随包分发），本 skill 只负责生成占位符与配图清单。
+> - 文中 `Prompt版本/` 即本目录；`CONTEXT.md` / `SOUL.md` 对应 `references/hard-constraints.md` 与 `references/runbook.md`。
+> - 文中提到的会话/窗口交互细节，按当前宿主 agent 环境理解（子代理调用 = 宿主的 subagent/task 机制，或单会话顺序执行）。
 
 <START>
 

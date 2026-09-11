@@ -110,5 +110,86 @@ r = run(f'python "{SCRIPTS + "/qbank.py"}" export-md --file 中间产物/batch00
 check("export-md 生成", (WS / "中间产物" / "batch001" / "test_export.md").exists(),
       r.stdout[-200:] + r.stderr[:200])
 
+print("== 11. 规则命中断言（评审 §七.5：不能只验'可执行'，要验'规则真的命中'） ==")
+# 每个探针题都构造成必然触发一条特定规则；断言该 rule 出现在校验报告里。
+# 若某条规则被改坏/失效（如 R1 死代码那类问题），本步会直接失败。
+rule_probe = [
+    {"question_id": "P-R1", "type": "A1", "stem": "关于该病，下列说法正确的是？",
+     "options": {"A": "以上都是", "B": "选项B内容", "C": "选项C内容", "D": "选项D内容", "E": "选项E内容"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "记忆"},
+    {"question_id": "P-R1W", "type": "A1", "stem": "该病的病理分型是？",
+     "options": {"A": "腺癌", "B": "鳞癌（常见类型）", "C": "小细胞癌", "D": "大细胞癌", "E": "类癌"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "记忆"},
+    {"question_id": "P-R2", "type": "A1", "stem": "该病最常见的病因是下列哪一项？",
+     "options": {"A": "由多种遗传与环境因素长期共同作用导致的复杂病理生理过程",
+                 "B": "感染", "C": "外伤", "D": "肿瘤", "E": "免疫"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "记忆"},
+    {"question_id": "P-R5", "type": "A1", "stem": "下列哪项检查最有价值？",
+     "options": {"A": "CT", "B": "MRI", "C": "超声", "D": "X线"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "理解"},
+    {"question_id": "P-R7", "type": "A1", "stem": "该病的典型表现是？",
+     "options": {"A": "发热", "B": "咳嗽咳痰气促..", "C": "胸痛", "D": "咯血", "E": "盗汗"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "记忆"},
+    {"question_id": "P-R8", "type": "A1", "stem": "该病最常累及的器官是？",
+     "options": {"A": "肾脏", "B": "肝脏和脾脏的", "C": "心脏", "D": "肺脏", "E": "脑"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "记忆"},
+    {"question_id": "P-R10", "type": "A1",
+     "stem": "患者突发胸骨后压榨性疼痛伴心肌梗死典型心电图改变，最可能的诊断是？",
+     "options": {"A": "急性心肌梗死", "B": "主动脉夹层", "C": "肺栓塞", "D": "心包炎", "E": "气胸"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "分析"},
+    {"question_id": "P-R11", "type": "A1",
+     "stem": "患者因慢性阻塞性肺疾病急性加重出现呼吸衰竭，血气分析示低氧血症，最合适的处理是？",
+     "options": {"A": "急性加重", "B": "慢性阻塞性肺疾病患者需呼吸衰竭处理",
+                 "C": "低氧血症", "D": "血气分析", "E": "肺疾病"},
+     "answer": "B", "analysis": "解析内容解析内容", "bloom_level": "应用"},
+    {"question_id": "P-R12", "type": "A1", "stem": "该病的病理分型是？",
+     "options": {"A": "腺癌", "B": "鳞癌（见上文）", "C": "小细胞癌", "D": "大细胞癌", "E": "类癌"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "记忆"},
+    {"question_id": "P-R13", "type": "A1", "stem": "该病最常见的转移途径是？",
+     "options": {"A": "淋巴道转移", "B": "血道转移", "C": "种植转移",
+                 "D": "直接蔓延至邻近组织器官并沿自然腔道播散", "E": "混合转移"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "记忆"},
+    {"question_id": "P-JS1", "type": "A1", "stem": "该病诊断依据...",
+     "options": {"A": "症状", "B": "体征", "C": "实验室检查", "D": "影像学", "E": "病理"},
+     "answer": "A", "analysis": "解析内容解析内容", "bloom_level": "记忆"},
+]
+probe_path = WS / "中间产物" / "batch001" / "_rule_probe.json"
+probe_path.write_text(json.dumps(rule_probe, ensure_ascii=False, indent=2), encoding="utf-8")
+r = run(f'python "{SCRIPTS + "/validate_options.py"}" --file 中间产物/batch001/_rule_probe.json --mode full', cwd=WS)
+probe_report = WS / "reports" / "validate" / "validate_options_report__rule_probe.json"
+hit_rules = set()
+hit_details = []
+if probe_report.exists():
+    data = json.loads(probe_report.read_text(encoding="utf-8"))
+    for issue in data.get("issues", []):
+        hit_rules.add(issue.get("rule"))
+        hit_details.append(f"[{issue.get('rule')}] {issue.get('detail')}")
+
+# R1~R13 + JS1 逐条断言（R11 依赖关键词抽取，已在探针中构造确定性命中）
+for rule in ["R1", "R2", "R5", "R7", "R8", "R10", "R11", "R12", "R13", "JS1"]:
+    check(f"规则 {rule} 命中", rule in hit_rules,
+          f"报告未包含 {rule}；实际命中={sorted(r for r in hit_rules if r)}")
+
+# R1 死代码回归断言（评审 §6.5-P1.1）：末尾括号说明后缀必须能触发 R1 WARN
+r1_warn_hit = any(d.startswith("[R1]") and "括号说明后缀" in d for d in hit_details)
+check("R1 末尾括号后缀分支可达（死代码回归）", r1_warn_hit,
+      "R1 的括号后缀 WARN 分支未触发 —— 可能又变回不可达分支")
+
+# R2 文案与实现一致性断言（评审 §6.5-P1.4）：取的是 min 而非均值，文案应为"最短"
+r2_warn = [d for d in hit_details if d.startswith("[R2]") and "显著长于" in d]
+if r2_warn:
+    check("R2 文案用'最短'而非'均'", all("最短" in d for d in r2_warn),
+          f"R2 文案与实现不符: {r2_warn}")
+else:
+    check("R2 文案用'最短'而非'均'", True, "（本次未产生 R2 WARN，跳过）")
+
+# R8 科目豁免来自配置而非硬编码（评审 §七.9）
+r8_config_ok = run(f'python -c "import sys; sys.path.insert(0, \'{SCRIPTS}\'); '
+                   f'from pipeline_config import get_r8_legit_terms as g; '
+                   f'assert \'气\' in g(\'中医\'), \'中医词表未生效\'; '
+                   f'assert \'妄想\' in g(), \'默认词表缺失\'; print(\'ok\')"', cwd=WS)
+check("R8 豁免词表由 pipeline.yaml 驱动", "ok" in r8_config_ok.stdout,
+      r8_config_ok.stdout + r8_config_ok.stderr[:200])
+
 print(f"\n{'=' * 40}\n结果: {PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

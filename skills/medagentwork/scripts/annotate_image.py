@@ -28,16 +28,28 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-FONT_PATH = r'C:\Windows\Fonts\msyhbd.ttc'   # 微软雅黑 Bold
+FONT_PATH = ''   # 由下方跨平台探测填充
 
-# 字体路径取自单一配置源 medillustration_config.yaml（P1-4 / P2-8），缺失时回退默认
+# 字体路径：跨平台探测（评审 §6.5-P1.3）——不再写死 Windows 路径，
+# 否则非 Windows 环境中文标注直接失败。
+# 优先级：medillustration_config.yaml > 环境变量 MEDAGENTWORK_FONT_BOLD > 平台候选列表
 try:
     from medillustration_config import fonts as _fonts_cfg
-    _f = _fonts_cfg()
-    if _f.get('bold'):
-        FONT_PATH = _f['bold']
-except Exception:
-    pass
+    FONT_PATH = (_fonts_cfg() or {}).get('bold') or ''
+except Exception as _e:
+    print(f'  ⚠️ 插图字体配置加载失败({_e})，将回退到系统候选字体', file=sys.stderr)
+
+
+def _resolve_font_path(path):
+    """校验字体可用性，失败时给出可诊断的报错而不是晦涩的 OSError。"""
+    if path and os.path.exists(path):
+        return path
+    raise FileNotFoundError(
+        f'中文字体不可用: {path!r}。请设置环境变量 MEDAGENTWORK_FONT_BOLD 指向一个 '
+        f'支持中文的字体文件（如 /usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc），'
+        f'或在标注 YAML 中显式指定 font: <路径>。'
+    )
+
 TEXT_COLOR = '#1A1B1C'
 LINE_COLOR = '#333333'
 DEFAULT_BG = '#FFFFFF'
@@ -137,7 +149,7 @@ def process(config_path):
     img_path = os.path.join(base, cfg['image']) if not os.path.isabs(cfg['image']) else cfg['image']
     out_path = os.path.join(base, cfg['output']) if not os.path.isabs(cfg['output']) else cfg['output']
 
-    font_path = cfg.get('font', FONT_PATH)
+    font_path = _resolve_font_path(cfg.get('font') or FONT_PATH)
     img = Image.open(img_path).convert('RGB')
     draw = ImageDraw.Draw(img)
 

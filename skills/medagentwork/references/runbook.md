@@ -43,6 +43,7 @@ GATE-A3   python {SKILL}/scripts/gate_check.py --batch {batchID} --stage agent3_
 GATE-A4   python {SKILL}/scripts/gate_check.py --batch {batchID} --stage agent4_done
 MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batchID}/ALL_questions_FIXED.json --out 最终产物/{batchID}/ALL_questions_FIXED.md --title "{科目}·{模块}（{batchID}）"
 金标准配额  python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json   # 占比≥15% 通过
+            无金标准时显式降级：追加 --golden-absent（报告留痕 degraded=true）
 插图门禁  python {SKILL}/scripts/check_inline_images.py --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md --img-dir 复习资料/{科目}教学计划版/images_webp --list 复习资料/{科目}教学计划版/{科目}_配图清单.md
 终审      python {SKILL}/scripts/gate_check.py --batch {batchID} --stage final
 ```
@@ -51,7 +52,10 @@ MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batch
 - `python {SKILL}/scripts/gate_check.py --batch {batchID} --clear-halt` 清除该批次 HALT（修复后使用）
 - validate 报告输出在 `reports/validate/`，gate 报告在 `reports/gate/`
 - **MD 导出是最终交付格式**：GATE-A4 通过后必须运行 export-md（JSON 为机器可读源，MD 为用户可读交付），与 JSON 同目录交付
-- **金标准配额（HC-18）**：批次启动前运行 `kaoyan_picker.py pick`（检索该章节真题候选，注入 MedGen 调用指令）；终审前运行 `check`（占比 ≥15% 通过；<15% 时核对候选，确无真题覆盖则标注「无真题覆盖」后放行）
+- **金标准配额（HC-18）**：批次启动前运行 `kaoyan_picker.py pick`（检索该章节真题候选，注入 MedGen 调用指令）；终审前运行 `check`（占比 ≥15% 通过）。
+  - 确无真题覆盖时**显式降级**：`check ... --golden-absent` → 报告留痕 `degraded: true` + `golden_status: "absent(降级)"`，并打印醒目警告。**不加该参数默认 fail-closed（占比不足即 FAIL）**，降级必须由操作者主动声明。
+  - 降级批次**没有金标准兜底**，答案正确性完全由 MedQC + 人工签收负责 —— 请据此调整信任预期。
+  - 最小可用金标准模板：`{SKILL}/assets/golden_set_template.json`（10–20 题即可生效）。
 
 ### 事实校验（P1-1 · GATE-A2 前执行）
 

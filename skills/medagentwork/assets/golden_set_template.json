@@ -1,0 +1,57 @@
+{
+  "_readme": [
+    "MedAgentWork 金标准（GoldenSet）最小可用模板 —— 评审 §七.13 冷启动支持。",
+    "用法：复制本文件到你的工作区 GoldenSet/structured/ 下，按你的真实真题改写内容。",
+    "  GoldenSet/structured/GS_上册_<年>.json   ← 本模板（题干 + 选项）",
+    "  GoldenSet/structured/GS_下册_<年>.json   ← 答案解析（可只含 gs_id/answer/explanation）",
+    "然后在终审阶段执行：",
+    "  python {SKILL}/scripts/kaoyan_picker.py pick --subject <科目> --keywords \"<关键词>\" --target <题数×0.2> --out 中间产物/{batch}/kaoyan_candidates.json",
+    "  python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batch}/ALL_questions_FIXED.json",
+    "字段说明：gs_id(唯一ID) / year(年份) / question_no(题号) / type(A1|A2|B1|X) / stem(题干)",
+    "         / options({A..E}) / answer(单个或多个字母) / explanation(解析) / subject(科目) / source_file(出处)",
+    "最少 10-20 题即可让 HC-18 配额机制生效（目标 20%，合格带 15%-25%）。",
+    "注意：请只放入你有权使用的题目（公开指南衍生自测题 / 你自有的题库）。本 skill 不附带任何真题数据。"
+  ],
+  "meta": {
+    "format": "MedAgentWork-GoldenSet-v1",
+    "note": "示例条目，请替换为你自己的真题；示例内容为示意，不保证医学准确性。"
+  },
+  "questions": [
+    {
+      "gs_id": "GS-SAMPLE-001",
+      "year": 2024,
+      "question_no": 1,
+      "type": "A1",
+      "stem": "（示例）缺血性脑卒中急性期静脉溶栓的经典时间窗是？",
+      "options": {
+        "A": "发病后 4.5 小时内",
+        "B": "发病后 12 小时内",
+        "C": "发病后 24 小时内",
+        "D": "发病后 48 小时内",
+        "E": "发病后 72 小时内"
+      },
+      "answer": "A",
+      "explanation": "（示例解析，请替换为权威出处原文）",
+      "subject": "神经病学",
+      "source_file": "（请填写你的真题来源，如：XX版真题解析）"
+    },
+    {
+      "gs_id": "GS-SAMPLE-002",
+      "year": 2024,
+      "question_no": 2,
+      "type": "A1",
+      "stem": "（示例）原发性高血压最常见的靶器官损害不包括？",
+      "options": {
+        "A": "左心室肥厚",
+        "B": "视网膜病变",
+        "C": "肾小球硬化",
+        "D": "肝纤维化",
+        "E": "脑小血管病变"
+      },
+      "answer": "D",
+      "explanation": "（示例解析，请替换为权威出处原文）",
+      "subject": "内科学",
+      "source_file": "（请填写你的真题来源）"
+    }
+  ]
+}

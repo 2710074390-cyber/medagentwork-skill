@@ -70,11 +70,11 @@
 | **R10 词重复线索** | validate | 题干关键词仅出现在正确选项 → FAIL。NBME D18机械化检测（batch011教训） |
 | **R11 收敛策略** | validate | 正确选项与题干术语共享数显著最高(>其他2x) → WARN。NBME D19机械化检测 |
 | **R12 无意义后缀** | validate | 检测"(相关表现)""(相关类型)"等无意义括号后缀 → FAIL（batch006/011教训） |
-| **R13 长度上限** | validate | 单选项>20字 → FAIL，选项avg>18字 → WARN（batch007 v2/batch009教训） |
+| **R13 长度上限** | validate | 单选项>20字 → FAIL，选项avg>18字 → WARN（batch007 v2/batch009教训）。阈值取自 `pipeline.yaml: thresholds.option_length_max / option_avg_max`（缺失回退默认） |
 | **R9 升级** | validate | 临床参数/生理阈值/CPR急救类缺单位 → FAIL（非WARN）。15+检验参数检测（CRP/ESR/CK-MB/cTnI/血气等）（batch014教训） |
 | **HC-15 Bloom实时采样** | Agent 1 | Agent 2 生成过程中每50题运行 `bloom_sampler.py`。偏差>15% → halt → 注入配额修正指令（禁止A1、强制A2/A3/X型） |
 | **HC-16 押题增强** | Agent 1 | 启动新批次时运行 `frequency_analyzer.py --golden GoldenSet/`。高频考点配额×1.5（增加变体题），零频考点配额×0.5。注入数据写入 Agent 2 调用指令 |
-| **HC-18 真题配额** | 全部角色 | 每批题库约 1/5（目标 20%，合格带 15%–25%）为原题（金标准引用/改编）。Agent 1：启动跑 `kaoyan_picker.py pick` 注入候选、终审跑 `check` 验证占比；Agent 2：按配额引用/改编并标注 `kaoyan_origin`；Agent 3：D21 对引用题 100% 比对源（答案冲突 must_escalate）；Agent 4：真题答案保护（KAOYAN_ANSWER_CONFLICT 升级告警）。无真题覆盖章节以原创补齐并如实标注 |
+| **HC-18 真题配额** | 全部角色 | 每批题库约 1/5（目标 20%，合格带 15%–25%）为原题（金标准引用/改编）。Agent 1：启动跑 `kaoyan_picker.py pick` 注入候选、终审跑 `check` 验证占比；Agent 2：按配额引用/改编并标注 `kaoyan_origin`；Agent 3：D21 对引用题 100% 比对源（答案冲突 must_escalate）；Agent 4：真题答案保护（KAOYAN_ANSWER_CONFLICT 升级告警）。无真题覆盖章节以原创补齐并如实标注。<br>**降级模式（v2.1）**：确无金标准时，`check` 必须显式加 `--golden-absent`，报告留痕 `degraded: true`；不加该参数默认 fail-closed。降级批次无金标准兜底，答案正确性转由 MedQC + 人工签收负责 |
 | **HC-17 状态单一入口** | 全部 | 任何角色/脚本**禁止直接手改 workflow_state.json**（状态-文件系统漂移缺陷）。必须经由 `workflow_state.py`（原子写 tmp+os.replace）。HALT 一律 `ws.set_halt/clear_halt/check_halt` |
 
 ## 产物形态契约（HC-18b）

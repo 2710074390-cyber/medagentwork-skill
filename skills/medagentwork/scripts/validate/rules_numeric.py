@@ -2,13 +2,21 @@
 rules_numeric.py — 数值型校验规则 R1-R9
 从 validate_options.py 拆分而来
 """
+import os
 import re
+import sys
 from collections import defaultdict, Counter
 from .contracts import FORBIDDEN_PATTERNS, NEGATION_WORDS, NUMERIC_PARAMS, is_x_type
 
+# pipeline.yaml 阈值单一事实来源（评审 §6.4 / §七.7）
+_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+from pipeline_config import get_number, get_r8_legit_terms  # noqa: E402
+
 
 def check_r1_forbidden(q: dict) -> list[dict]:
-    """R1: 禁止项检测"""
+    """R1: 禁止项检测 + 选项末尾括号说明后缀检测"""
     issues = []
     for letter, text in q['options'].items():
         for pattern, severity, desc in FORBIDDEN_PATTERNS:
@@ -19,14 +27,19 @@ def check_r1_forbidden(q: dict) -> list[dict]:
                     'target': f"{q['id']}.option{letter}",
                     'detail': f'{desc}: "{text[:30]}..."' if len(text) > 30 else f'{desc}: "{text}"',
                 })
-        if re.search(r'[（(][^）)]*[）)]\s*$', text) and not re.search(r'[（(]见上|见下|[）)]$', text):
-            if re.search(r'[（(]见[上文下][）)]', text):
-                issues.append({
-                    'rule': 'R1',
-                    'severity': 'WARN',
-                    'target': f"{q['id']}.option{letter}",
-                    'detail': f'选项末尾含括号说明后缀: "{text[-30:]}"',
-                })
+        # 末尾括号说明后缀 = HC-6「凑长度」信号。
+        # v1.1 修复（评审 §6.5-P1.1）：原第二个条件写作
+        #     not re.search(r'[（(]见上|见下|[）)]$', text)
+        # 其中 `[）)]$` 分支在第一个条件成立时必然为真，使整个 not(...) 恒为 False，
+        # 内层分支永不执行（已实测 branch_reachable=False）→ 确凿死代码。
+        # 现改为只排除 R12 已以 FAIL 覆盖的「见上/见下」引用，避免重复上报。
+        if re.search(r'[（(][^）)]*[）)]\s*$', text) and not re.search(r'[（(]见[上文下][）)]', text):
+            issues.append({
+                'rule': 'R1',
+                'severity': 'WARN',
+                'target': f"{q['id']}.option{letter}",
+                'detail': f'选项末尾含括号说明后缀(疑似凑长度): "{text[-30:]}"',
+            })
     return issues
 
 
@@ -52,19 +65,24 @@ def check_r2_length_ratio(q: dict) -> list[dict]:
     if min_other == 0:
         return issues
     ratio = correct_len / min_other
-    if ratio > 2.0:
+    # 阈值取自 pipeline.yaml（缺失回退内置默认 2.0 / 1.5）
+    ratio_fail = get_number('r2_ratio_fail', 2.0)
+    ratio_warn = get_number('r2_ratio_warn', 1.5)
+    if ratio > ratio_fail:
         issues.append({
             'rule': 'R2',
             'severity': 'FAIL',
             'target': f"{q['id']}.options",
-            'detail': f'正确选项({answer})长度比{ratio:.1f}x (>2.0): {correct_len}字 vs {min_other}字',
+            'detail': f'正确选项({answer})长度比{ratio:.1f}x (>{ratio_fail}): {correct_len}字 vs {min_other}字',
         })
-    elif ratio > 1.5:
+    elif ratio > ratio_warn:
         issues.append({
             'rule': 'R2',
             'severity': 'WARN',
             'target': f"{q['id']}.options",
-            'detail': f'正确选项({answer})长度({correct_len}字)显著长于其他选项(均{min_other}字)',
+            # v1.1 修复（评审 §6.5-P1.4）：原文案写"均{min_other}字"，但实现取的是
+            # min(other_lens) 而非均值，会误导读日志的人；改为"最短"。
+            'detail': f'正确选项({answer})长度({correct_len}字)显著长于其他选项(最短{min_other}字)',
         })
     return issues
 
@@ -209,14 +227,18 @@ def check_r7_truncation(q):
 
 
 def check_r8_min_length(q):
-    """R8: 最小长度检测 — 选项过短"""
+    """R8: 最小长度检测 — 选项过短
+
+    豁免词表不再硬编码精神科词表（评审 §6.5-P1.5 / §七.9）：
+    改为从 pipeline.yaml `thresholds.r8_legit_terms_*` 读取，按题目 `subject`
+    字段（或环境变量 MEDAGENTWORK_SUBJECT）叠加科目专属词表。
+    这样中医/外科等科目可各自配置，而不是对精神科词表产生系统性误报/漏报。
+    """
     issues = []
     if is_x_type(q['type']):
         return issues
 
-    legit_terms = {'妄想', '幻觉', '障碍', '减退', '缺乏', '低落', '焦虑', '恐惧',
-                   '躁狂', '抑郁', '木僵', '违拗', '缄默', '痴呆', '谵妄', '强迫',
-                   '疑病', '失眠', '嗜睡', '人格', '自知力', 'PTSD', 'OCD', 'AD'}
+    legit_terms = get_r8_legit_terms(q.get('subject'))
 
     suspicious_ends = {'的', '了', '等', '与', '或', '及', '对', '为', '于', '和', '是'}
 

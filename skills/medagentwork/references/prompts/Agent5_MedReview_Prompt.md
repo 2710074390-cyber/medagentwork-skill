@@ -1,10 +1,10 @@
 > [!NOTE] 环境适配说明（skill 分享版）
-> 本提示词原样保留自 MedAgentWork 原项目（多 Agent 工作区时代）。在本 skill 中使用时注意：
-> - 文中 `知识库素材/search_kb.py` 等 RAG 检索入口未随 skill 分发——需要教材原文时改读工作区 `输入素材/` 下用户文件，或使用宿主 agent 的检索能力
-> - 文中 `.dsh/skills/` 路径对应本 skill 的 `references/`
-> - 文中 `Prompt版本/` 即本目录；`CONTEXT.md`/`SOUL.md` 对应 `references/hard-constraints.md` 与 `references/runbook.md`
-> - 文中提到的具体会话/窗口交互细节，按当前宿主 agent 环境理解（子代理调用 = 宿主的 subagent/task 机制，或单会话顺序执行）
-> - 科目代码（RAG --subject 参数）等本地配置仅作参考，按你的工作区实际配置
+> 本提示词原样保留自 MedAgentWork 原项目的多 Agent 工作区时代。在本 skill 中使用时注意：
+> - **路径已按分享版清洗**：原 `.dsh/skills/` → `references/`；原 `知识库素材/` → 工作区 `输入素材/`；原 `subject_config.json` → `pipeline.yaml`。
+> - **RAG 检索未随包分发**：原 `知识库素材/search_kb.py` 已移除；需要教材原文时改读 `输入素材/` 下用户文件，或使用宿主 agent 的检索能力。
+> - **生图需自备能力**：图片生成依赖外部图片 Agent（原「豆包」链路未随包分发），本 skill 只负责生成占位符与配图清单。
+> - 文中 `Prompt版本/` 即本目录；`CONTEXT.md` / `SOUL.md` 对应 `references/hard-constraints.md` 与 `references/runbook.md`。
+> - 文中提到的会话/窗口交互细节，按当前宿主 agent 环境理解（子代理调用 = 宿主的 subagent/task 机制，或单会话顺序执行）。
 
 # Agent 5 — MedReview 主复习资料生成器 v5
 
@@ -12,7 +12,7 @@
 
 > **v5.2 更新 (2026-09-01)**：产物导出兼容约束（E1-E3，不可违反）——①行内强调一律用 `<b>…</b>`/`<i>…</i>`，禁用 `**`/`*`（Obsidian 实时预览与原生 PDF 导出按 CommonMark 解析，`**中文**` 不识别为粗体 → 裸 `**` 泄漏，commonmark#650 七年未修）；②折叠区一律改 `#### 🔬 展开：…` 标题，禁用 `<details>/<summary>`（Obsidian 阅读视图与原生 PDF 导出不渲染 HTML 块内部 Markdown）；③新增 V14 导出兼容自检，未过即返工。
 
-> **v5.3 更新 (2026-09-XX)**：生图功能接入（豆包 Doubao 图片 Agent 按 medillustration skill 执行，即"MedIllustrator"；DSH 不调用 image_gen）。你只负责**写插图占位符 + 输出配图清单**（见「插图规范」），图片生成/标注/压缩由豆包完成；新增 V15 插图占位自检。已有试点：内科学 22 图（`复习资料/内科学教学计划版/images_webp/`）。
+> **v5.3 更新 (2026-09-XX)**：生图功能接入（外部生图 Agent 按 medillustration skill 执行，即"MedIllustrator"；DSH 不调用 image_gen）。你只负责**写插图占位符 + 输出配图清单**（见「插图规范」），图片生成/标注/压缩由外部生图 Agent完成；新增 V15 插图占位自检。已有试点：内科学 22 图（`复习资料/内科学教学计划版/images_webp/`）。
 
 ## 角色定义
 
@@ -485,7 +485,7 @@ v5 增强：在跨模块串联中引用 D5 概念地图中的具体链路。
 
 ## 插图规范（v5.3 新增 · 与 MedIllustrator 对接）
 
-> MedIllustrator（生图 Agent，见 `.dsh/skills/medillustration/SKILL.md`）按本规范消费你的产出。你**只负责写占位符 + 输出配图清单**，不生成图片、不做标注、不处理压缩。试点参照：内科学 22 图（`复习资料/内科学教学计划版/`）。
+> MedIllustrator（生图 Agent，见 `references/medillustration.md`）按本规范消费你的产出。你**只负责写占位符 + 输出配图清单**，不生成图片、不做标注、不处理压缩。试点参照：内科学 22 图（`复习资料/内科学教学计划版/`）。
 
 ### 1. 插图触发决策树
 
@@ -494,7 +494,7 @@ v5 增强：在跨模块串联中引用 D5 概念地图中的具体链路。
 ├─ 解剖结构类（骨骼/肌肉/器官/神经/耳鼻喉结构/血管等）
 │   └─ 优先复用《人体解剖学彩色图谱》（148 张，出版级）
 │      覆盖：神经系统/视器/前庭蜗器/其他感觉器/运动系统（少量）
-│      图号索引：知识库素材/图谱图片索引/image_index.md（图号·图谱名·页码）
+│      图号索引：输入素材/（用户自备图谱索引）（图号·图谱名·页码）
 │      占位符 alt 用「图N：{图谱中文图名}」，清单中来源列【图谱图号 图XXX】
 └─ 机制/病理/分型/进展、图谱无覆盖（如腹股沟疝、先兆子痫机制、烧伤九分法）
     └─ AI 生成无字底图 → 占位符 alt 用「图N：{自拟短图名}」，清单中来源列【AI生成】+ prompt 要素

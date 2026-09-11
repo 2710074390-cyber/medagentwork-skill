@@ -2,9 +2,17 @@
 rules_structural.py — 结构型校验规则 R10-R13 + B1/JS1/S3
 从 validate_options.py 拆分而来
 """
+import os
 import re
+import sys
 from collections import defaultdict, Counter
 from .contracts import STEM_STOP_WORDS, is_x_type
+
+# pipeline.yaml 阈值单一事实来源（评审 §6.4 / §七.7）
+_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+from pipeline_config import get_number  # noqa: E402
 
 try:
     import jieba
@@ -147,10 +155,17 @@ def check_r12_meaningless_suffix(q):
 
 
 def check_r13_length_ceiling(q):
-    """R13: 选项长度上限检测"""
+    """R13: 选项长度上限检测
+
+    阈值取自 pipeline.yaml（缺失回退内置默认 20 / 18），
+    消除「配置声明 18、代码写死 18」的双轨制（评审 §6.4 / §七.7）。
+    """
     issues = []
     if q.get('type', '') in ('X', 'X型'):
         return issues
+
+    length_max = get_number('option_length_max', 20)
+    avg_max = get_number('option_avg_max', 18)
 
     opts = q.get('options', {})
     lengths = [len(v) for v in opts.values() if v]
@@ -161,20 +176,20 @@ def check_r13_length_ceiling(q):
 
     for letter, text in opts.items():
         tlen = len(text)
-        if tlen > 20:
+        if tlen > length_max:
             issues.append({
                 'rule': 'R13',
                 'severity': 'FAIL',
                 'target': f"{q['id']}.option{letter}",
-                'detail': f'选项过长({tlen}字 > 20字)，疑似矫枉过正: "{text[:30]}..."',
+                'detail': f'选项过长({tlen}字 > {length_max:g}字)，疑似矫枉过正: "{text[:30]}..."',
             })
 
-    if avg_len > 18:
+    if avg_len > avg_max:
         issues.append({
             'rule': 'R13',
             'severity': 'WARN',
             'target': f"{q['id']}.options",
-            'detail': f'选项平均长度{avg_len:.1f}字 > 18字，整体偏长（防过度加长）',
+            'detail': f'选项平均长度{avg_len:.1f}字 > {avg_max:g}字，整体偏长（防过度加长）',
         })
     return issues
 

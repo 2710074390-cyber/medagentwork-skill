@@ -14,14 +14,15 @@ from PIL import Image
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# 压缩参数取自单一配置源 medillustration_config.yaml（P1-4 / P2-8），缺失时回退默认
+# 压缩参数取自单一配置源 medillustration_config（P1-4 / P2-8），缺失时回退默认
 try:
     from medillustration_config import canvas as _canvas_cfg
     _c = _canvas_cfg()
     WEBP_W = int(_c.get('webp_width', 1600))
     QUALITY = int(_c.get('webp_quality', 82))
     METHOD = int(_c.get('webp_method', 6))
-except Exception:
+except Exception as _e:  # 不再静默：配置加载失败要能看见
+    print(f"  ⚠️ WebP 导出配置加载失败({_e})，使用内置默认参数", file=sys.stderr)
     WEBP_W = 1600
     QUALITY = 82
     METHOD = 6
