@@ -141,6 +141,10 @@ skills/medagentwork/
 
 `.github/workflows/ci.yml` 在每次 push / PR 时执行：语法编译检查（`compileall`）、静态检查（`pyflakes`）、冒烟测试（含规则命中断言）、`pipeline.yaml` 阈值可解析性验证。
 
+## 变更记录
+
+见 [CHANGELOG.md](CHANGELOG.md)。当前版本 **v2.1**（依据《medagentwork-skill 仓库评审报告》完成 P1/P2 缺陷修复与 5 项中期结构性改进）。
+
 ## 使用约定
 
 - **所有脚本必须在工作区目录下运行**（脚本按当前目录定位 `中间产物/`、`workflow_state.json` 等）：`cd <工作区> && python <技能目录>/scripts/xxx.py ...`
