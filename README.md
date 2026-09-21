@@ -94,7 +94,22 @@ v2.1 已对 **Bloom 分布**加固（用题库 JSON 机械重算并与自述值�
 
 ## 安装
 
-技能采用通用 Agent Skills 格式（SKILL.md + scripts/ + references/），支持 TRAE 与 Claude Code。
+技能采用通用 Agent Skills 格式（SKILL.md + scripts/ + references/），支持 40+ 兼容客户端。
+
+**方式一：Claude Code 插件市场**（一行命令，自动获取更新）：
+
+```bash
+/plugin marketplace add 2710074390-cyber/medagentwork-skill
+/plugin install medagentwork@medagentwork-skill
+```
+
+**方式二：Vercel Skills CLI**（从 GitHub 直接安装）：
+
+```bash
+npx skills add 2710074390-cyber/medagentwork-skill -g -y
+```
+
+**方式三：手动复制**（适用于所有 Agent Skills 兼容客户端）：
 
 **TRAE**：把 `skills/medagentwork/` 整个目录复制到你的工作区技能目录：
 
@@ -102,12 +117,17 @@ v2.1 已对 **Bloom 分布**加固（用题库 JSON 机械重算并与自述值�
 <你的复习资料项目>/.trae/skills/medagentwork/
 ```
 
+TRAE 也支持 **导入 .zip**（设置 → 技能与命令 → 创建 → 上传包含 `SKILL.md` 的 zip），
+或启用 `.agents/skills/` 规范目录后自动发现。
+
 **Claude Code**：复制到个人技能目录（全局可用）或项目技能目录：
 
 ```
 ~/.claude/skills/medagentwork/          # 全局
 <你的复习资料项目>/.claude/skills/medagentwork/   # 单项目
 ```
+
+**WorkBuddy**：复制到 `~/.workbuddy/skills/medagentwork/`（CodeBuddy 为 `~/.codebuddy/skills/`）。
 
 **其他兼容环境**：任何支持 Agent Skills（SKILL.md）规范的宿主均可，将 `skills/medagentwork/` 放入对应技能目录即可。
 
@@ -200,25 +220,51 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
 ## 目录结构
 
 ```
-skills/medagentwork/
-├── SKILL.md                 # 技能入口：管线总览 + 阶段调度 + 门禁速查 + 边界声明
-├── references/              # 按需加载的角色手册与规则
-│   ├── runbook.md           #   批次生命周期 / 门禁命令 / 故障处置
-│   ├── medmaster.md         #   编排规则
-│   ├── medgen.md            #   出题阶段执行规则
-│   ├── medqc.md            #   质检阶段执行规则
-│   ├── medfix.md            #   修复阶段执行规则
-│   ├── medreview.md         #   复习资料成册执行规则
-│   ├── hard-constraints.md #   HC/D/R 硬约束全集（教训库）
-│   └── prompts/             #   五个角色的完整提示词（路径已清洗为分享版）
-├── scripts/                 # 全部门禁/状态/渲染脚本（纯标准库）
-│   ├── pipeline_config.py   #   pipeline.yaml 阈值运行时加载器（单一事实来源）
-│   ├── telemetry.py         #   JSONL 事件日志（可观测性，best-effort）
-│   └── validate/            #   R1-R13 校验规则引擎
-├── schemas/                 # agent2/3/4 产物契约
-├── assets/                  # 押题卷 HTML 模板、成品页模板、金标准模板
-└── pipeline.yaml            # 声明式管线配置（阶段/门禁/SLO/thresholds）
+├── .claude-plugin/
+│   └── marketplace.json     # Claude Code 插件市场清单（/plugin marketplace add 用）
+├── tools/
+│   └── preflight_publish.py # 投稿/发布前预检（按各渠道收录规范自检）
+├── smoketest/
+│   └── run_smoketest.py     # 冒烟测试（23 项断言，含规则命中断言）
+└── skills/medagentwork/
+    ├── SKILL.md             # 技能入口：定位与适用边界 + 安全说明 + 管线总览 + 门禁速查
+    ├── references/          # 按需加载的角色手册与规则
+    │   ├── runbook.md       #   批次生命周期 / 门禁命令 / 故障处置
+    │   ├── medmaster.md     #   编排规则
+    │   ├── medgen.md        #   出题阶段执行规则
+    │   ├── medqc.md         #   质检阶段执行规则
+    │   ├── medfix.md        #   修复阶段执行规则
+    │   ├── medreview.md     #   复习资料成册执行规则
+    │   ├── hard-constraints.md  #   HC/D/R 硬约束全集（教训库）
+    │   └── prompts/         #   五个角色的完整提示词（路径已清洗为分享版）
+    ├── scripts/             # 全部门禁/状态/渲染脚本（纯标准库）
+    │   ├── pipeline_config.py   #   pipeline.yaml 阈值运行时加载器（单一事实来源）
+    │   ├── telemetry.py         #   JSONL 事件日志（可观测性，best-effort）
+    │   └── validate/            #   R1-R13 校验规则引擎
+    ├── schemas/             # agent2/3/4 产物契约
+    ├── assets/              # 押题卷 HTML 模板、成品页模板、金标准模板
+    └── pipeline.yaml        # 声明式管线配置（阶段/门禁/SLO/thresholds）
 ```
+
+## 分发与投稿
+
+本仓库已具备自发布条件（无需任何审核）。发布前跑一次预检：
+
+```bash
+python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
+```
+
+| 渠道 | 方式 | 状态 |
+|---|---|---|
+| **Claude Code 插件市场** | `/plugin marketplace add 2710074390-cyber/medagentwork-skill` | ✅ 已就绪（`.claude-plugin/marketplace.json`） |
+| **Vercel Skills（skills.sh）** | `npx skills add 2710074390-cyber/medagentwork-skill` | ✅ 直接索引公开仓库 |
+| **ClawHub** | 网页发布：[clawhub.ai/import](https://clawhub.ai/import) → Import from GitHub | ✅ 可提交（需接受 MIT-0 条款） |
+| **agentic-awesome-skills** | Fork → 放入 `skills/` → `npm run validate` → PR | ✅ 已满足其 frontmatter 与章节要求 |
+| TRAE / WorkBuddy / Cursor 等 | 复制 `skills/medagentwork/` 到各自技能目录 | ✅ 无门槛 |
+
+`SKILL.md` frontmatter 已按主流注册表规范填写：`category: ai` / `risk: critical` /
+`source: community` / `date_added` / `tags` / `tools`，并含必需的
+`## When to Use This Skill` 与 `## Security & Safety Notes` 章节。
 
 ## 持续集成
 

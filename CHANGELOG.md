@@ -7,10 +7,30 @@
 
 ## [Unreleased]
 
+### 新增（分发能力）
+
+- **具备自发布条件**，并补齐主流 Agent Skills 注册表要求的元数据：
+  - 新增 `.claude-plugin/marketplace.json` → 任何人可
+    `/plugin marketplace add 2710074390-cyber/medagentwork-skill` 直接安装（零审核）
+  - `SKILL.md` frontmatter 按注册表规范补齐：`category: ai` / `risk: critical` /
+    `source: community` / `date_added` / `author` / `license` / `tags`（5 个）/ `tools`
+  - `SKILL.md` 新增 `## When to Use This Skill` 章节（原「§0 定位与适用边界」重命名，
+    满足注册表必需章节的标题匹配）
+  - `SKILL.md` 新增 `## Security & Safety Notes` 章节（`risk: critical` 要求：
+    运行环境、写入范围、需要确认的动作、依赖安装、内容责任）
+- 新增 `tools/preflight_publish.py`：把各渠道收录规范变成可执行预检
+  （name/description 长度与保留字、name↔目录名一致、AAS 必需字段、
+  `## When to Use` 章节、悬空链接、正文引用文件是否存在）。
+  当前结果：**致命=0 警告=0**（`--strict` 亦通过）
+- `README.md` 新增「分发与投稿」章节与多种安装方式（Claude Code 插件市场 /
+  Vercel Skills CLI / 手动复制 / TRAE .zip 导入 / WorkBuddy 目录）
+
 ### 已知待办
 
 - 拆分巨型文件：`scripts/render_review.py`、`scripts/gate_check.py`。
   前置条件：先为 `render_review.py` 补渲染快照测试作为回归基线（详见 v2.1 说明）。
+- 若后续要投国际渠道（Claude / AAS），需补英文 README 与英文 description；
+  并建议加最小示例数据集，让使用者装完能立刻跑通。
 
 ---
 

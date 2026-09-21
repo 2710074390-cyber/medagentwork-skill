@@ -43,3 +43,6 @@ jobs:
 
       - name: pipeline.yaml 阈值可被零依赖解析器读取
         run: python skills/medagentwork/scripts/pipeline_config.py
+
+      - name: 投稿/发布前预检（frontmatter 规范 + 悬空链接）
+        run: python tools/preflight_publish.py --strict

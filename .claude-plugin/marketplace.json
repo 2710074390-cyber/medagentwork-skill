@@ -1,0 +1,21 @@
+{
+  "name": "medagentwork-skill",
+  "owner": {
+    "name": "2710074390-cyber"
+  },
+  "metadata": {
+    "description": "MedAgentWork — 医学题库生产管线 Agent Skill（五阶段工作流 + 确定性门禁）",
+    "version": "2.2.0"
+  },
+  "plugins": [
+    {
+      "name": "medagentwork",
+      "description": "把教材/笔记变成高质量医学题库与分层复习手册的完整工作流：五个角色接力（编排→出题→质检→修复→成册），每个阶段转换由确定性 Python 门禁强制校验，配 Bloom 认知分层配额、金标准比对与回归教训库。核心管线零第三方依赖。",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/medagentwork"
+      ]
+    }
+  ]
+}
