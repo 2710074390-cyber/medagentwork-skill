@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### 已知待办
+
+- 拆分巨型文件：`scripts/render_review.py`、`scripts/gate_check.py`。
+  前置条件：先为 `render_review.py` 补渲染快照测试作为回归基线（详见 v2.1 说明）。
+
+---
+
+## [v2.2] — 2026-09-21
+
 ### 移除
 
 - **移除全部插图相关功能**（图片文件、插图引用、相关代码与样式）：
@@ -39,10 +48,23 @@
 - **`SKILL.md` 新增 §0「定位与适用边界」**：适用/不适用对照表 + 三条最容易被高估的局限，
   便于 Agent 在加载技能时先判断适用性；细节指向 README。
 
-### 已知待办
+### 验证
 
-- 拆分巨型文件：`scripts/render_review.py`、`scripts/gate_check.py`。
-  前置条件：先为 `render_review.py` 补渲染快照测试作为回归基线（详见 v2.1 说明）。
+- 冒烟测试：**23 passed / 0 failed**
+- `python -m compileall -q skills/medagentwork/scripts smoketest` 通过
+- `render_review.py` 实测渲染正常：输出 `<img>`=0、`med-figure`=0，
+  粗体/表格/填空等正常内容完好（`<strong>`=1）
+- **悬空引用扫描**：`annotate_image` / `check_inline_images` / `compose_atlas` / `export_webp` /
+  `render_diagram` / `medillustration` / `GATE-A6` / `HC-19` / `AGENT6` / `embed-images` /
+  `images_webp` / `Pillow` —— 除本 CHANGELOG 的历史条目外，命中 **0 个文件**
+- 无脚本 import 已删除模块；`skills/` 文件数 **56 → 49**
+
+### 说明
+
+- `CHANGELOG` 的 v1.0 / v2.1 历史条目中保留插图相关记述（记录当时发布内容），
+  属不可变历史记录，未作改写
+- 本次为**破坏性变更**（功能与脚本删除、质检维度 D22→D21、硬约束 HC-19 移除）；
+  按语义化版本本应升主版本号，依用户指定发布为 v2.2
 
 ---
 
@@ -167,6 +189,7 @@
 
 ---
 
-[Unreleased]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v2.1...HEAD
+[Unreleased]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v2.2...HEAD
+[v2.2]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v2.1...v2.2
 [v2.1]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v1.0...v2.1
 [v1.0]: https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v1.0

@@ -226,7 +226,7 @@ skills/medagentwork/
 
 ## 变更记录
 
-见 [CHANGELOG.md](CHANGELOG.md)。当前版本 **v2.1**（依据《medagentwork-skill 仓库评审报告》完成 P1/P2 缺陷修复与 5 项中期结构性改进）。
+见 [CHANGELOG.md](CHANGELOG.md)。当前版本 **v2.2**（v2.1 依据《medagentwork-skill 仓库评审报告》完成 P1/P2 缺陷修复与 5 项中期结构性改进；v2.2 移除全部插图相关功能）。
 
 ## 使用约定
 
