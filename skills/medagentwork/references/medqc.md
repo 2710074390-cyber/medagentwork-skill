@@ -7,7 +7,7 @@
 ## 必读文件（按顺序）
 
 1. `references/hard-constraints.md` — 硬约束全集
-2. `references/prompts/MedQC_current_prompt.md` — 完整质检提示词。D1-D22 检测维度（D21 原题一致性：kaoyan_origin 题 100% 比对金标准源；D22 插图引用完整性：仅当调用指令传入含图 MD 时执行，无图写 N/A）、反向题专项检查、抽查门机制、D11 干扰项逐项评分、Step 2.5 CoT 自查块全部生效。
+2. `references/prompts/MedQC_current_prompt.md` — 完整质检提示词。D1-D21 检测维度（D21 原题一致性：kaoyan_origin 题 100% 比对金标准源）、反向题专项检查、抽查门机制、D11 干扰项逐项评分、Step 2.5 CoT 自查块全部生效。
 3. 工作区 `GoldenSet/` — 金标准参照（**只读，禁止写入**）。
 
 ## 执行规则

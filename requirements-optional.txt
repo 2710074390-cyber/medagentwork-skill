@@ -9,9 +9,9 @@
 #
 # 说明（评审 §6.5-P2.9：可选依赖原先只散落在 README 与 SKILL.md 文字里）
 
-# ── 插图四件套（render_diagram / annotate_image / export_webp / compose_atlas）──
-# 仅在启用「插图阶段」时需要。Pillow 负责图像处理，PyYAML 负责读标注配置与 pipeline.yaml。
-Pillow>=10.0
+# ── 配置解析（scripts/pipeline_config.py 读取 pipeline.yaml）──
+# 缺失时自动回退到内置「最小解析器」（只解析扁平 thresholds: 段），仍可正常出题质检；
+# 装上后可用完整 YAML 语法，并支持 pipeline.yaml 后续扩展为更复杂的结构。
 PyYAML>=6.0
 
 # ── 契约校验（contract_check.py）──

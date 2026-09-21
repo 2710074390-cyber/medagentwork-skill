@@ -8,15 +8,13 @@
 
 ```
 启动(登记批次) → 阶段2 MedGen → 门禁A2 → 阶段3 MedQC → 门禁A3
-→ 阶段4 MedFix → 门禁A4 → 阶段5 MedReview → 门禁A5*
-→ [阶段6 插图(可选)] → 门禁GATE-A6
+→ 阶段4 MedFix → 门禁A4 → 阶段5 MedReview → 门禁A5
 → 终审门禁 → 用户签收(APPROVED) → 归档
 ```
 
 - 门禁未通过 → **halt** → 回退对应角色修复 → 重跑门禁（不可跳过，HC-12）
 - GoldenSet 签收只由用户手动执行，任何角色禁止写入
-- *门禁A5：MedReview 产出主复习资料 MD + 配图清单，编排者核对占位符与清单一致（`check_inline_images.py`，首次跑允许 0 张占位 = MD 无图）后进入插图阶段
-- **插图阶段（可选）**：生图走 `medillustration.md` 手册；回传 `images_webp/*.webp` 后运行 GATE-A6 并人工质检（解剖准确性抽查）
+- 门禁A5：MedReview 产出主复习资料 MD，编排者核对 MD 结构完整（标题层级/模块划分/附录齐全）
 
 ## 2. 目录与命名（铁律）
 
@@ -26,8 +24,7 @@
 | Agent 2 | `中间产物/{batchID}/` | `ALL_questions.json`、备考资料 .md |
 | Agent 3 | `质检报告/{batchID}/` | `A3_质检报告.json` |
 | Agent 4 | `最终产物/{batchID}/` | `ALL_questions_FIXED.json`、**`ALL_questions_FIXED.md`（最终交付格式，强制）**、`AGENT4_追溯日志.json`、`AGENT4_修改声明.md`、`escalations_for_human.md` |
-| Agent 5 | `复习资料/{科目}教学计划版/` | `{科目}_主复习资料.md`、`{科目}_配图清单.md`（配图时强制） |
-| 插图 | `复习资料/{科目}教学计划版/` | `raw/`（无字底图）、`annotate_configs/*.yaml`、`annotated/`、`images_webp/*.webp`（MD 引用，1600px q=82） |
+| Agent 5 | `复习资料/{科目}教学计划版/` | `{科目}_主复习资料.md` |
 | 金标准 | `GoldenSet/` | 仅用户手动移入 |
 | 归档 | `archive/{类别}/{batchID}/` | 签收后归档（手动移动） |
 
@@ -44,7 +41,6 @@ GATE-A4   python {SKILL}/scripts/gate_check.py --batch {batchID} --stage agent4_
 MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batchID}/ALL_questions_FIXED.json --out 最终产物/{batchID}/ALL_questions_FIXED.md --title "{科目}·{模块}（{batchID}）"
 金标准配额  python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json   # 占比≥15% 通过
             无金标准时显式降级：追加 --golden-absent（报告留痕 degraded=true）
-插图门禁  python {SKILL}/scripts/check_inline_images.py --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md --img-dir 复习资料/{科目}教学计划版/images_webp --list 复习资料/{科目}教学计划版/{科目}_配图清单.md
 终审      python {SKILL}/scripts/gate_check.py --batch {batchID} --stage final
 ```
 
@@ -84,9 +80,7 @@ python {SKILL}/scripts/fact_check.py golden --file 中间产物/{batchID}/ALL_qu
 | Bloom 偏差 >15% | 回退 MedGen 按配额修正（`bloom_sampler.py`，HC-15） |
 | 补丁未溯源 | 追溯日志缺 source_file_synced → 打回 MedFix（HC-13，batch014 教训） |
 | 签收 | 用户确认 → 状态置 APPROVED → 用户手动移入 GoldenSet → 归档 |
-| 图谱报「文件不存在」 | 已归档批次属预期：`qbank.py check` 已归档感知；如需修正路径用 `qbank.py rehome` |
-| 插图缺失/占位符与文件不一致 | GATE-A6 exit 1 → 读输出定位（C2 文件缺失 / C3 图号断号 / C5 清单不一致）→ 补图或修正清单 → 重跑门禁 |
-| 回传图片解剖错误 | 打回重生成，提示词加强形态特征描述（如「楔形、右叶大于左叶」）；AI 图内中文标注一律禁用（乱码），改 `annotate_image.py` 程序叠加 |
+| `qbank.py check` 报「文件不存在」 | 已归档批次属预期：`check` 已归档感知；如需持久化修正注册表路径用 `qbank.py rehome` |
 
 ## 6. 手工流程备用（save/ingest）
 

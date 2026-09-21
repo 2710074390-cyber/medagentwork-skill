@@ -2,7 +2,6 @@
 > 本提示词原样保留自 MedAgentWork 原项目的多 Agent 工作区时代。在本 skill 中使用时注意：
 > - **路径已按分享版清洗**：原 `.dsh/skills/` → `references/`；原 `知识库素材/` → 工作区 `输入素材/`；原 `subject_config.json` → `pipeline.yaml`。
 > - **RAG 检索未随包分发**：原 `知识库素材/search_kb.py` 已移除；需要教材原文时改读 `输入素材/` 下用户文件，或使用宿主 agent 的检索能力。
-> - **生图需自备能力**：图片生成依赖外部图片 Agent（原「豆包」链路未随包分发），本 skill 只负责生成占位符与配图清单。
 > - 文中 `Prompt版本/` 即本目录；`CONTEXT.md` / `SOUL.md` 对应 `references/hard-constraints.md` 与 `references/runbook.md`。
 > - 文中提到的会话/窗口交互细节，按当前宿主 agent 环境理解（子代理调用 = 宿主的 subagent/task 机制，或单会话顺序执行）。
 

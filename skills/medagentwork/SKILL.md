@@ -9,9 +9,8 @@ description: 医学题库生产管线（五阶段 Agent 工作流：出题→质
 
 本 skill 由 MedAgentWork 原项目转化而来，核心管线**零第三方依赖**（纯 Python 标准库），开箱即用。
 
-> ⚠️ **两个前置条件（评审 §七.13 / §七.16）**
-> 1. **数据需自备**：本 skill 只含**机制**不含**数据** —— 没有真题、教材、图谱。金标准（`GoldenSet/`）由你手动维护；无金标准时管线会走「降级模式」（见 §6）。
-> 2. **生图能力需自备**：插图阶段（可选）的图片生成依赖**外部图片 Agent**（原「豆包」链路未随包分发）。没有该能力时请**跳过插图阶段**，其余阶段完全不受影响。
+> ⚠️ **前置条件：数据需自备**
+> 本 skill 只含**机制**不含**数据** —— 没有真题、教材。金标准（`GoldenSet/`）由你手动维护；无金标准时管线会走「降级模式」（见 §6）。
 
 ## 0. 定位与适用边界（先判断要不要用）
 
@@ -21,8 +20,8 @@ description: 医学题库生产管线（五阶段 Agent 工作流：出题→质
 |---|---|
 | 教材/笔记 → 系统化复习资料 + 配套题库 | 单题问答、临时查资料（流水线开销远大于收益） |
 | 教研团队批量题库建设（需可追溯/可复现/可审计） | 需要医疗诊断建议（见 `Boundaries`） |
-| 作为「LLM + 确定性门禁」工程范式的参考实现 | 无自有素材/金标准（本 skill 不含真题、教材、图谱） |
-| 有自备真题/权威题库（`GoldenSet/`）的用户 | 想开箱即用出图（生图依赖外部图片 Agent） |
+| 作为「LLM + 确定性门禁」工程范式的参考实现 | 无自有素材/金标准（本 skill 不含真题、教材） |
+| 有自备真题/权威题库（`GoldenSet/`）的用户 | 需要单题即时作答（流水线开销远大于收益） |
 
 **三条最容易被高估的局限**（完整清单见仓库 `README.md` 的「局限性」一节）：
 
@@ -46,7 +45,7 @@ cd <你的工作区>
 python {SKILL}/scripts/validate_options.py --batch batch001
 ```
 
-依赖：核心管线（validate/gate/state/qbank/fact_check/bloom/kaoyan/render）**零依赖**；插图四件套（render_diagram/annotate_image/export_webp/compose_atlas）需 `pip install Pillow PyYAML`。完整的可选依赖清单见仓库根目录 `requirements-optional.txt`。
+依赖：核心管线（validate/gate/state/qbank/fact_check/bloom/kaoyan/render）**零依赖**；可选增强（PyYAML / jsonschema / jieba）见仓库根目录 `requirements-optional.txt`，全部缺失也能完整跑通。
 
 **阈值调参**：所有可调阈值（选项长度上限、Bloom 偏差上限、R8 豁免词表等）集中在 `pipeline.yaml` 的 `thresholds:` 段，由 `scripts/pipeline_config.py` 在运行时读取（缺失回退内置默认）。改配置即全局生效，**不需要改 Python 代码**。
 
@@ -74,17 +73,15 @@ cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scrip
 
 ```
 启动(登记批次) → MedGen 出题 → GATE-A2 → MedQC 质检 → GATE-A3
-→ MedFix 修复 → GATE-A4 → MedReview 成册 → GATE-A5*
-→ [插图阶段·可选] → 终审门禁 → 用户签收(APPROVED) → 归档
+→ MedFix 修复 → GATE-A4 → MedReview 成册 → GATE-A5
+→ 终审门禁 → 用户签收(APPROVED) → 归档
 ```
 
 - 门禁 BLOCKED → **halt** → 回退对应角色修复 → 重跑门禁（不可跳过）
-- **插图阶段（可选）需自备生图能力**：图片生成由**外部图片 Agent** 执行（原「豆包」链路未随包分发），本 skill 只产出「占位符 + 配图清单」。没有该能力时**直接跳过此阶段**，不影响其余流程与门禁。
 - 每个阶段的完整角色手册在 `references/`，**进入该阶段前必读对应手册**：
   - `references/runbook.md` — 批次生命周期/门禁命令/目录规范/故障处置（编排必读）
   - `references/medmaster.md` — 编排规则与调用指令模板
   - `references/medgen.md` / `medqc.md` / `medfix.md` / `medreview.md` — 各角色执行规则
-  - `references/medillustration.md` — 插图工作流（可选阶段）
   - `references/hard-constraints.md` — HC/D/R 硬约束全集（出题质检的规则底座）
   - `references/prompts/` — 五个角色的完整提示词（出题/质检的深度规范）
 
@@ -93,7 +90,7 @@ cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scrip
 1. **启动**：用户说「开始新批次：{科目}+{章节}」→ 回显意图（科目/目标题数/模块划分/Bloom 目标）→ 用户确认 → 在 `workflow_state.json` 登记批次（批次号 `batch{NNN}`；`s, _ = ws.load_state(); b, _ = ws.ensure_batch(s, 'batch001'); b.update(subject=...); ws.save_state(s)`）
 2. **MedGen**（读 `references/medgen.md` + `references/prompts/MedGen_current_prompt.md`）：读 `输入素材/{科目}/`，生成题库 JSON 写入 `中间产物/{batchID}/ALL_questions.json`（纯 JSON 数组），生成中每 50 题跑 Bloom 采样（HC-15）
 3. **GATE-A2**（不可跳过）：validate FAIL==0 才放行；FAIL>0 → 打回 MedGen 修正
-4. **MedQC**（读 `references/medqc.md` + 对应 prompt）：按 D1-D22 维度质检，报告写入 `质检报告/{batchID}/A3_质检报告.json`
+4. **MedQC**（读 `references/medqc.md` + 对应 prompt）：按 D1-D21 维度质检，报告写入 `质检报告/{batchID}/A3_质检报告.json`
 5. **GATE-A3**：D20≠0 且 Bloom 偏差≤15%
 6. **MedFix**（读 `references/medfix.md`）：按质检报告逐项修复，输出到 `最终产物/{batchID}/`（含追溯日志 `source_file_synced: true`）
 7. **GATE-A4 + MD 导出**：复检 FAIL==0 后运行 `qbank.py export-md` 生成 `ALL_questions_FIXED.md`（最终交付格式）
@@ -138,9 +135,6 @@ python {SKILL}/scripts/render_review.py "复习资料/xxx.md"   # 自包含 HTML
 # 状态与契约
 python {SKILL}/scripts/workflow_state.py --show {batchID}
 python {SKILL}/scripts/contract_check.py --batch {batchID}   # 产物 vs schemas 契约
-
-# 插图占位一致性（配图科目，插图阶段后）
-python {SKILL}/scripts/check_inline_images.py --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md --img-dir 复习资料/{科目}教学计划版/images_webp --list 复习资料/{科目}教学计划版/{科目}_配图清单.md
 ```
 
 门禁报告输出在 `reports/validate/` 与 `reports/gate/`。
@@ -178,7 +172,7 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 ## 7. 关键设计（为什么这样做）
 
 - **门禁即防线**：LLM 自检不可信，一切质量判定交给确定性脚本（5 起管线绕过教训的结论）
-- **教训入库**：`regression_db.json`（回归漏洞库）+ `references/hard-constraints.md`（HC-0~HC-19 硬约束）——每次事故都沉淀为可机械执行的规则
+- **教训入库**：`regression_db.json`（回归漏洞库）+ `references/hard-constraints.md`（HC-0~HC-18 硬约束）——每次事故都沉淀为可机械执行的规则
 - **Bloom 配额**：认知分层目标 30/40/25/5，实时采样防「记忆层超标」
 - **结构模板优于字数约束**：选项长度靠「每题选项共享相同语法结构」而非 min/max 字数（3 次振荡教训）
 - **NBME 反套路**：R10 词重复线索 / R11 收敛策略 / R2 长度比等机械化检测，防 LLM 出题的隐性泄题
@@ -212,7 +206,6 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 |---|---|
 | RAG 知识库检索（向量+重排序） | 缩减：直接读 `输入素材/` 文件；如需检索增强由宿主 agent 自行接入 |
 | 考研真题库内容 | 机制保留（`kaoyan_picker.py`，支持 `--upper/--lower` 自定义金标准），真题数据用户自备（版权） |
-| 人体解剖图谱复用 | 机制保留（`compose_atlas.py`），图谱素材用户自备（版权） |
 | Cloudflare 站点部署 / 访问计数 | 不含（线上站与本地管线无关） |
 | MedKit 桌面生成器 | 不含（独立仓库） |
 | DSH subagent 编排 | 通用化：单会话顺序执行各阶段（宿主支持 subagent 时可并行） |

@@ -7,22 +7,41 @@
 
 ## [Unreleased]
 
+### 移除
+
+- **移除全部插图相关功能**（图片文件、插图引用、相关代码与样式）：
+  - 删除 7 个插图专属文件：`references/medillustration.md`、`scripts/annotate_image.py`、
+    `scripts/check_inline_images.py`、`scripts/compose_atlas.py`、`scripts/export_webp.py`、
+    `scripts/medillustration_config.py`、`scripts/render_diagram.py`
+  - `scripts/render_review.py` 移除图片渲染代码与样式：`_replace_image()` 方法、
+    `embed_images` 参数、`--embed-images` CLI 开关、`.med-figure`/`.fig-caption` CSS、
+    `import base64`、插图张数统计；Markdown 图片语法改为剥离（不再输出 `<figure>`）
+  - 管线移除插图阶段：`SKILL.md` / `runbook.md` / `medmaster.md` 的阶段图与目录约定、
+    `references/hard-constraints.md` 的「插图生成分工」节、
+    硬约束 HC-19（插图契约）、门禁 GATE-A6、Agent 6 状态（`AGENT6_INVOKED`/`AGENT6_DONE`）
+  - 提示词移除插图规范：`Agent5_MedReview_Prompt.md` 的「插图规范」整节（57 行）与 V15 自检、
+    `MedMaster_current_prompt.md` 的 HC-19 节与「阶段五·五：生图」节、
+    `MedQC_current_prompt.md` 的 D22 维度（质检维度收敛为 **D1-D21**）
+  - 依赖：`requirements-optional.txt` 移除 `Pillow`；`.gitattributes` 移除 `*.webp binary`
+  - 说明：`PyYAML` **保留** —— 它同时是 `scripts/pipeline_config.py` 读取 `pipeline.yaml`
+    的可选依赖，与插图无关
+
 ### 新增（文档）
 
 - **README 新增三节介绍**，把"该不该用"的判断前置到安装之前：
   - 「这是什么（定位）」—— 一句话定位、管线示意、核心主张、以及**它不是什么**（4 条否定项）
-  - 「适用场景」—— 适配良好 4 类 / 不适配 4 类，逐条给出原因
-  - 「局限性（请先读）」—— 8 条按严重度排列的局限，每条对应具体代码或文档位置：
+  - 「适用场景」—— 适配良好 4 类 / 不适配 3 类，逐条给出原因
+  - 「局限性（请先读）」—— 7 条按严重度排列的局限，每条对应具体代码或文档位置：
     ① 门禁只保证形式质量不保证临床正确性；② 只有 Bloom 一维做了独立重算；
-    ③ 金标准是硬门槛、无金标准时机制价值归零；④ 插图链路不完整；
-    ⑤ 不含任何版权数据；⑥ 不提供 RAG 检索；⑦ 已知工程债（巨型文件未拆分、
-    提示词语境残留、无原生并行）；⑧ 环境要求
+    ③ 金标准是硬门槛、无金标准时机制价值归零；④ 不含任何版权数据；
+    ⑤ 不提供 RAG 检索；⑥ 已知工程债（巨型文件未拆分、提示词语境残留、
+    无原生并行）；⑦ 环境要求
 - **`SKILL.md` 新增 §0「定位与适用边界」**：适用/不适用对照表 + 三条最容易被高估的局限，
   便于 Agent 在加载技能时先判断适用性；细节指向 README。
 
 ### 已知待办
 
-- 拆分巨型文件：`scripts/render_review.py`（1520 行）、`scripts/gate_check.py`（1255 行）。
+- 拆分巨型文件：`scripts/render_review.py`、`scripts/gate_check.py`。
   前置条件：先为 `render_review.py` 补渲染快照测试作为回归基线（详见 v2.1 说明）。
 
 ---

@@ -20,9 +20,8 @@
    - **输入文件路径**（不是粘贴内容）
    - **输出文件路径**约定
    - **【金标准配额】小节**（HC-18）：目标题数、真题候选文件路径、无真题覆盖章节清单
-3. **门禁强制（HC-12 Orchestrator-as-Enforcer）**：每个阶段转换前必须实际运行门禁命令（见 `references/runbook.md` 第 3 节），FAIL/BLOCKED → halt → 回退上游修复，**不可跳过**（5 起管线绕过教训）。终审前加跑 `kaoyan_picker.py check`；配图科目加跑 `check_inline_images.py`。
+3. **门禁强制（HC-12 Orchestrator-as-Enforcer）**：每个阶段转换前必须实际运行门禁命令（见 `references/runbook.md` 第 3 节），FAIL/BLOCKED → halt → 回退上游修复，**不可跳过**（5 起管线绕过教训）。终审前加跑 `kaoyan_picker.py check`。
 4. **文件传递与核对**：下游角色完成后读取核对产物（JSON 可解析、必填字段齐全），再把路径传给下一角色。
 5. **签收**：用户签收后批次置 APPROVED；GoldenSet 只允许用户手动移入，任何角色不得写入。
 6. **会话卫生**：每批次建议独立会话；批次关键事件记入 `memory/JOURNAL.jsonl`（UTF-8 JSONL，一行一条）。
 7. **检索增强（可选）**：原版接入 RAG 知识库检索；skill 版默认直接读 `输入素材/` 文件，宿主 agent 自带搜索/检索能力时可按 `references/prompts/` 中的检索规范接入。
-8. **插图阶段（可选）**：MedReview 交付主复习资料 MD + 配图清单后，若科目属配图范围：编排交接（配图清单 + `references/medillustration.md` 要点 + 可复用图路径 + 科目目录规范）；回传 `images_webp/*.webp` 后运行 GATE-A6 并组织人工质检复核（解剖准确性抽查）。
