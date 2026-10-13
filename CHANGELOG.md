@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+### 修复（分享版残留路径显式降级 · 评审清尾）
+
+- `scripts/verify_page_numbers.py`：知识库索引清单（`知识库素材/index_store/index_manifest.json`）
+  缺失时，`--subject` / `--all` 此前会抛出未捕获的 `FileNotFoundError`（traceback）；
+  现改为报告 `SKIPPED` 并按非失败处理（exit 0）。页码索引属分享版可选能力
+  （RAG 链路已剥离，索引随原项目自备），**附索引时的既有行为不变**；
+  模块 docstring 同步补充「分享版说明」。
+- `scripts/fact_check.py pages`：审计确认无索引路径**已有**显式降级
+  （打印「教材分块索引不存在…跳过页码反查」后 exit 0），无需改动——仅记录审计结论。
+- `README.md`：新增插图功能指引——插图管线自 v2.2 起整体移除，需要插图
+  （图谱复用 / AI 底图 / 中文标注 / WebP 压缩）请使用
+  [v2.1](https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.1)
+  （插图功能最终维护版本）；「与原版的差异」表补回插图管线一行。
+
 ### 新增（分发能力）
 
 - **具备自发布条件**，并补齐主流 Agent Skills 注册表要求的元数据：

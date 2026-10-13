@@ -6,6 +6,11 @@
 
 由 [MedAgentWork](https://med-review-site.pages.dev) 项目转化而来，保留了原版全部方法论资产：HC-0~HC-18 硬约束（每条背后是一次真实事故）、D1-D21 质检维度、R1-R13 机械化校验规则、五个角色的完整提示词。
 
+> **需要插图阶段（图谱复用 / AI 底图 / 程序化中文标注 / WebP 压缩）？**
+> 插图管线自 **v2.2 起整体移除**。如需完整插图能力（三通道路由、`annotate_image` 标注、
+> `check_inline_images` 门禁），请改用 [v2.1](https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.1)
+> —— 插图功能的**最终维护版本**；无需插图则直接使用本版（更精简）。
+
 ## 这是什么（定位）
 
 **一句话定位**：这不是一个"医学问答工具"，而是一条**医学题库生产的工业流水线**——用 CI/CD 的工程范式（Pipeline as Code + Quality Gate）治理 LLM 出题的不确定性。
@@ -285,6 +290,7 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 | 原版特性 | skill 版处理 |
 |---|---|
 | RAG 知识库检索（向量+重排序） | 缩减：直接读素材文件；检索增强由宿主 agent 自行接入 |
+| 插图管线（图谱复用 / AI 底图 / 中文标注 / WebP） | **v2.2 起整体移除**；需要请使用 [v2.1](https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.1)（插图终版） |
 | 考研真题库内容 | 机制保留，数据用户自备（版权） |
 | Cloudflare 站点部署 / MedKit 桌面生成器 | 不含（与管线无关） |
 | DSH subagent 编排 | 通用化：单会话顺序执行（宿主支持时可用 subagent） |

@@ -6,6 +6,10 @@
   python verify_page_numbers.py --all                # 检查所有科目索引
   python verify_page_numbers.py --check-appendix 神经病学  # 检查附录占位符
   python verify_page_numbers.py --check-all-appendix # 检查所有附录
+
+分享版说明（v2.2 清尾）: 知识库索引（知识库素材/index_store/index_manifest.json）
+为可选能力——未配置索引时 --subject / --all 报告 SKIPPED（exit 0），不报错；
+附录页码检查（--check-appendix / --check-all-appendix）不依赖索引，始终可用。
 """
 import json, sys, argparse, re
 from pathlib import Path
@@ -27,6 +31,11 @@ REVIEW_DIR = WORKSPACE / "复习资料"
 # ──────────────────────────────────────────
 
 def check(code):
+    # v2.2 清尾（评审 §6.5-P2.7 同源）：分享版不含知识库索引（RAG 链路已剥离，
+    # 索引随原项目自备）。缺清单时显式 SKIPPED，不再抛未捕获 FileNotFoundError。
+    if not MANIFEST.exists():
+        return {"code": code, "status": "SKIPPED",
+                "note": "未配置知识库索引（知识库素材/index_store/index_manifest.json 不存在）——可选能力，检查跳过"}
     with open(MANIFEST, 'r', encoding='utf-8') as f:
         manifest = json.load(f)
     if code not in manifest:
@@ -240,8 +249,8 @@ def main():
         for name, code in SUBJECT_TO_CODE.items():
             r = check(code)
             status = r.get("status", "?")
-            icon = "✓" if status == "OK" else ("⚠️" if status == "WARN" else "✗")
-            if status not in ("OK", "WARN"):
+            icon = "✓" if status == "OK" else ("⚠️" if status == "WARN" else ("⏭" if status == "SKIPPED" else "✗"))
+            if status not in ("OK", "WARN", "SKIPPED"):
                 has_fail = True
             print(f"  {icon} {name:8s} → {status} {r.get('source', r.get('note',''))}")
 
@@ -250,7 +259,7 @@ def main():
         code = SUBJECT_TO_CODE.get(args.subject, args.subject)
         r = check(code)
         print(json.dumps(r, ensure_ascii=False, indent=2))
-        if r.get("status") not in ("OK", "WARN"):
+        if r.get("status") not in ("OK", "WARN", "SKIPPED"):
             has_fail = True
         if r.get("status") == "WARN":
             print(f"\n⚠️ 该科目索引使用 PDF 阅读器页码，非教材印刷页码！")
