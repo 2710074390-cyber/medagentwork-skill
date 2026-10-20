@@ -7,6 +7,53 @@
 
 ## [Unreleased]
 
+### 新增（对齐原项目最新规则 · HC-20 教师重点原文锚定 · 2026-10-18/19）
+
+- **HC-20 教师重点原文锚定与逐条覆盖**：教师重点/复习大纲原文 = **权威范围契约（下限）**，
+  优先级**高于上游备考资料**；条目数值/时间窗/分级界值/剂量/百分比/并列与禁止结构须以
+  **原文字面**落在对应考点，强制落点行 `📌 重点原文（第X条）：…`；交付前逐条覆盖矩阵
+  「未覆盖/部分覆盖」行数必须为 0。落地到：
+  - **新增 `scripts/check_keypoint_coverage.py`** —— 机械核验硬事实是否原样出现 +
+    编号条目是否有落点行（含落点行上下文级核验，防"别处命中"假通过）。
+    FAIL（退出码 1）→ 回退 Agent 5 补写，不得交付；无教师重点输入 → `SKIPPED`（退出码 2，**不视为通过**）。
+  - `references/hard-constraints.md`：新增 HC-20 表条目 + 专节（定性 / 三条硬动作 /
+    条号基准 / 原文锚定 > 原创性 / 机械化门禁）。
+  - `references/medreview.md`：输入规则新增 D0 强制与条号基准；执行规则新增"覆盖矩阵"
+    与 V17 自检报告；必读文件升级为 v5.6。
+  - `references/medmaster.md`：门禁强制新增"有教师重点输入时门禁A5/终审前加跑 `check_keypoint_coverage.py`"。
+  - `references/runbook.md`：生命周期新增"门禁A5 附加（HC-20）"；§3 门禁命令表新增"
+    重点覆盖"一行。
+  - `references/prompts/Agent5_MedReview_Prompt.md`：新增 **D0 节（最高优先·不可违反）**、
+    **V17 自检项**、行为约束第 1 条（原文锚定例外）与第 18 条；输入来源优先级修订为
+    **教师重点原文 > 备考资料 > 教材原文 > 修复后题库**；自检清单标题改为 `V1-V14 + V17`。
+  - `SKILL.md`：§4 生命周期第 8/9 步、§5 门禁速查、§7 关键设计（新增"原文锚定优于概括"）。
+
+### 变更（押题卷交付形态 HTML → MD · 对齐 HC-18 2026-10-19 修订）
+
+- `references/hard-constraints.md` 产物形态契约：押题卷改为**仅 MD**（题型归一为
+  **单选题/多选题/判断题**，供刷题软件导入），标注 HTML 交付已下线；补回
+  **"PDF 一律人工上传、管线/脚本禁止生成"** 一行（此前 skill 版遗漏该硬约束）。
+- `scripts/verify_produce_rules.py`：押题卷扩展名白名单改为 `{.md, .html}`（`.html` 仅提示不判 FAIL）；
+  新增押题卷 MD 内容规则（题目标题 `### N. [单选题|多选题|判断题｜Bloom] qid`、必含 `**答案：X**`、无内部标记）。
+- `SKILL.md` §6 交付格式契约表同步。
+
+### 变更（门禁与工具加固 · 对齐 2026-10-19）
+
+- `scripts/qbank.py` v1.3：与非活动条目（`status != 'active'`，即 superseded / source_archived）
+  的重复降级为 **INFO**（不再计入 WARN"需人工裁决"）；完整性校验只针对 `active` 条目
+  （已取代/源已归档条目其源文件按归档制度本就可能不在工作区）。
+- `references/runbook.md` 新增 **「门禁输入字段形状契约」**：GATE-A3/A4 前核对
+  `bloom_distribution.actual` / `source_file_synced` / `📌 重点原文` 三处字段形状，
+  区分"形状不符（可归一化留痕）"与"内容不合格（必须回退）"，防门禁假 BLOCKED。
+
+### 未纳入（有意排除，保持 skill 分享版边界）
+
+- 插图管线（`HC-19` / `GATE-A6` / `medillustration` / 配图清单）——v2.2 已整体移除。
+- RAG 检索（`search_kb.py` / `chunk_size` 等参数）与组卷器 `paper_builder.py` ——v1.0/v2.1 已缩减。
+- 站点发布契约 `HC-21`、`check_site_freshness.py`、`deploy_site.ps1`、PDF 来源断言、
+  `大四上` 分区门禁、跨工作区运维脚本 —— 均依赖原项目站点/部署设施，分享版不含。
+- 导出保真 `E4`/`V16`（Obsidian 打印 CSS 与快照测试）——实现（`obsidian-snippets/`、`tests/`）未随包分发。
+
 ### 修复（分享版残留路径显式降级 · 评审清尾）
 
 - `scripts/verify_page_numbers.py`：知识库索引清单（`知识库素材/index_store/index_manifest.json`）

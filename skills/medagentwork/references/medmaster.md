@@ -20,7 +20,7 @@
    - **输入文件路径**（不是粘贴内容）
    - **输出文件路径**约定
    - **【金标准配额】小节**（HC-18）：目标题数、真题候选文件路径、无真题覆盖章节清单
-3. **门禁强制（HC-12 Orchestrator-as-Enforcer）**：每个阶段转换前必须实际运行门禁命令（见 `references/runbook.md` 第 3 节），FAIL/BLOCKED → halt → 回退上游修复，**不可跳过**（5 起管线绕过教训）。终审前加跑 `kaoyan_picker.py check`。
+3. **门禁强制（HC-12 Orchestrator-as-Enforcer）**：每个阶段转换前必须实际运行门禁命令（见 `references/runbook.md` 第 3 节），FAIL/BLOCKED → halt → 回退上游修复，**不可跳过**（5 起管线绕过教训）。终审前加跑 `kaoyan_picker.py check`（HC-18，exit 1 → 核对覆盖情况后处理）。**有教师重点/复习大纲输入的批次：门禁A5 与终审前加跑 `python {SKILL}/scripts/check_keypoint_coverage.py --keypoints <教师重点原文> --md <主复习资料 MD>`（HC-20/D0 教师重点原文锚定，exit 1 → 回退 Agent 5 补写被概括丢失的数值/时间窗；无教师重点输入 → SKIPPED，不视为通过）**。
 4. **文件传递与核对**：下游角色完成后读取核对产物（JSON 可解析、必填字段齐全），再把路径传给下一角色。
 5. **签收**：用户签收后批次置 APPROVED；GoldenSet 只允许用户手动移入，任何角色不得写入。
 6. **会话卫生**：每批次建议独立会话；批次关键事件记入 `memory/JOURNAL.jsonl`（UTF-8 JSONL，一行一条）。

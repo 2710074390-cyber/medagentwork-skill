@@ -525,10 +525,12 @@ def _effective_ignore_pairs(extra=None):
 def check(ignore_pairs=None):
     """去重报告 + 完整性检查。返回 (问题列表, 警告列表, 提示列表)。
 
-    重复分类（2026-08-13 v1.1）:
+    重复分类（2026-08-13 v1.1 / 2026-10-19 v1.3）:
       - 跨批次重复 = WARN（同一题干出现在两个不同批次，需人工裁决；
         可通过 --ignore-pair 豁免已知合并关系，如合并来源 vs 合并结果）
       - 同批次 multi-stage（intermediate/final 并存）= INFO（新版本取代旧版本，属预期）
+      - 与非活动条目（status != 'active'，即 superseded / source_archived）重合 = INFO
+        （v1.3：被取代的旧条目与新题重合属预期，不再计入 WARN）
     ignore_pairs: 集合 of frozenset({batchA, batchB}) — 豁免的批次对
                   （与 registry_meta.json 中持久化的对合并生效）
     """
@@ -544,6 +546,17 @@ def check(ignore_pairs=None):
     ignored = 0
     for h, group in by_hash.items():
         if len(group) < 2:
+            continue
+        # v1.3 (2026-10-19): 非活动条目（status != 'active'，即 superseded /
+        # source_archived）与新题重合属预期，降级为 INFO，不再计入 WARN
+        # （旧批次被取代后其大量条目常与新版本少量条目重合，曾被报为
+        #  "跨批次重复（需人工裁决）"）。
+        if any(str(e.get('status', 'active')) != 'active' for e in group):
+            infos.append(
+                f'与非活动条目重合 x{len(group)}: 「{group[0].get("stem_snippet", "")}」'
+                f' 批次={sorted({e.get("batch") for e in group})}'
+                f' 状态={sorted({str(e.get("status", "active")) for e in group})}'
+            )
             continue
         batches = {e.get('batch') for e in group}
         if len(batches) > 1:
@@ -576,8 +589,12 @@ def check(ignore_pairs=None):
                 f' 批次={sample.get("batch")} (stage={sorted({e.get("stage") for e in group})})'
             )
     # 完整性: 引用文件存在（支持 archive/ 归档回退，2026-08-20）
+    # v1.3 (2026-10-19): 仅校验 status == 'active' 的条目——已取代/源已归档
+    # 的条目其源文件按学期归档制度本就可能不在工作区，继续硬报会让完整性检查长期 FAIL。
     missing = set()
     for e in entries:
+        if str(e.get('status', 'active')) != 'active':
+            continue
         if resolve_entry_path(e.get('file', '')) is None:
             missing.add(e.get('file'))
     if missing:

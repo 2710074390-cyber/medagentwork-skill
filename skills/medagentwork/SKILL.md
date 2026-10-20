@@ -120,8 +120,8 @@ cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scrip
 5. **GATE-A3**：D20≠0 且 Bloom 偏差≤15%
 6. **MedFix**（读 `references/medfix.md`）：按质检报告逐项修复，输出到 `最终产物/{batchID}/`（含追溯日志 `source_file_synced: true`）
 7. **GATE-A4 + MD 导出**：复检 FAIL==0 后运行 `qbank.py export-md` 生成 `ALL_questions_FIXED.md`（最终交付格式）
-8. **MedReview**（读 `references/medreview.md`）：生成教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`
-9. **终审**：`gate_check.py --stage final`（HC-9/10/11 + JSON 完整性）→ 用户审查 → 签收置 APPROVED → 用户手动把金标准题移入 `GoldenSet/`（仅用户操作）
+8. **MedReview**（读 `references/medreview.md`）：生成教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`；**有教师重点/复习大纲输入时**（HC-20/D0）交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`
+9. **终审**：`gate_check.py --stage final`（HC-9/10/11 + JSON 完整性）→ **有教师重点输入时加跑 `check_keypoint_coverage.py`（HC-20）** → 用户审查 → 签收置 APPROVED → 用户手动把金标准题移入 `GoldenSet/`（仅用户操作）
 
 ## 5. 门禁命令速查
 
@@ -151,6 +151,9 @@ python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_
 # 确无金标准时（降级模式，会在报告中留痕 degraded=true）：
 python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json --golden-absent
 
+# 教师重点原文锚定（HC-20 / D0 · 有教师重点或复习大纲输入的批次，门禁A5 与终审前各跑一次）
+python {SKILL}/scripts/check_keypoint_coverage.py --keypoints 输入素材/{科目}/{科目}_教师重点_*.md --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md   # 数值/时间窗类硬事实缺失或重点条目缺落点 → exit 1（返工）；无教师重点输入 → SKIPPED（退出码 2，不视为通过）
+
 # MD 导出（最终交付格式）
 python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batchID}/ALL_questions_FIXED.json --out 最终产物/{batchID}/ALL_questions_FIXED.md --title "{科目}·{模块}（{batchID}）"
 
@@ -176,7 +179,10 @@ python {SKILL}/scripts/contract_check.py --batch {batchID}   # 产物 vs schemas
 |---|---|---|
 | 题库 | **JSON（机器可读源）+ MD（用户可读交付）** | MD 由 `qbank.py export-md` 生成，✅ 答案标记/解析/页码 |
 | 复习资料 | MD（+ 可选 HTML：`render_review.py`） | 仅用站端渲染器子集，禁 Mermaid（用 ASCII 图） |
-| 押题卷 | HTML（`assets/quiz_template.html` + QUESTIONS 数组） | 模板在 skill 的 assets/ |
+| 押题卷 | **MD**（`押题卷_{科目}_{N}题.md`；题型归一为 单选题/多选题/判断题） | HTML 交付已下线（`assets/quiz_template.html` 仅历史遗留）；PDF 一律人工上传 |
+
+- 交付前必须过 `verify_produce_rules.py`（FAIL==0）；PDF 一律人工上传，管线/脚本禁止生成
+- 押题卷 MD 题目标题只允许 `### N. [单选题｜多选题｜判断题｜Bloom] qid` 形态，且必须含 `**答案：X**` 行
 
 - 复习资料 MD 附录必含：教材页码索引（真实页码禁占位）、术语同意异名对照表
 - 复习资料 MD 仅用：h1-h6/表格/粗斜体/代码块/Obsidian Callout/`<details open>`/列表/hr；加粗用 `<b>`（导出兼容 E1-E3）
@@ -198,7 +204,8 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 ## 7. 关键设计（为什么这样做）
 
 - **门禁即防线**：LLM 自检不可信，一切质量判定交给确定性脚本（5 起管线绕过教训的结论）
-- **教训入库**：`regression_db.json`（回归漏洞库）+ `references/hard-constraints.md`（HC-0~HC-18 硬约束）——每次事故都沉淀为可机械执行的规则
+- **教训入库**：`regression_db.json`（回归漏洞库）+ `references/hard-constraints.md`（HC-0~HC-20 硬约束）——每次事故都沉淀为可机械执行的规则
+- **原文锚定优于概括（HC-20）**：教师重点/复习大纲原文是权威范围契约（优先级高于上游备考资料），条目数值/时间窗/界值/并列与禁止结构须以原文字面落在 `📌 重点原文（第X条）：` 落点行内，并由 `check_keypoint_coverage.py` 机械化核验——堵住"概括那一步丢信息"这一根因
 - **Bloom 配额**：认知分层目标 30/40/25/5，实时采样防「记忆层超标」
 - **结构模板优于字数约束**：选项长度靠「每题选项共享相同语法结构」而非 min/max 字数（3 次振荡教训）
 - **NBME 反套路**：R10 词重复线索 / R11 收敛策略 / R2 长度比等机械化检测，防 LLM 出题的隐性泄题

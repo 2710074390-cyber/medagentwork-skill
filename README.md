@@ -243,9 +243,10 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
     │   ├── hard-constraints.md  #   HC/D/R 硬约束全集（教训库）
     │   └── prompts/         #   五个角色的完整提示词（路径已清洗为分享版）
     ├── scripts/             # 全部门禁/状态/渲染脚本（纯标准库）
-    │   ├── pipeline_config.py   #   pipeline.yaml 阈值运行时加载器（单一事实来源）
-    │   ├── telemetry.py         #   JSONL 事件日志（可观测性，best-effort）
-    │   └── validate/            #   R1-R13 校验规则引擎
+    │   ├── pipeline_config.py        #   pipeline.yaml 阈值运行时加载器（单一事实来源）
+    │   ├── check_keypoint_coverage.py #  教师重点覆盖门禁（HC-20：硬事实原样核验 + 落点行）
+    │   ├── telemetry.py              #   JSONL 事件日志（可观测性，best-effort）
+    │   └── validate/                 #   R1-R13 校验规则引擎
     ├── schemas/             # agent2/3/4 产物契约
     ├── assets/              # 押题卷 HTML 模板、成品页模板、金标准模板
     └── pipeline.yaml        # 声明式管线配置（阶段/门禁/SLO/thresholds）
@@ -277,7 +278,11 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 
 ## 变更记录
 
-见 [CHANGELOG.md](CHANGELOG.md)。当前版本 **v2.2**（v2.1 依据《medagentwork-skill 仓库评审报告》完成 P1/P2 缺陷修复与 5 项中期结构性改进；v2.2 移除全部插图相关功能）。
+见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.2**（v2.1 依据《medagentwork-skill 仓库评审报告》完成 P1/P2 缺陷修复与 5 项中期结构性改进；v2.2 移除全部插图相关功能）。
+
+`[Unreleased]` 段为**已对齐原项目最新规则**的未发布变更：**HC-20 教师重点原文锚定**
+（新增 `scripts/check_keypoint_coverage.py` 门禁 + 规则/提示词全链路落地）、**押题卷交付形态改 MD**、
+`qbank.py` v1.3（非活动条目降级）、门禁输入字段形状契约。
 
 ## 使用约定
 

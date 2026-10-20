@@ -15,6 +15,7 @@
 - 门禁未通过 → **halt** → 回退对应角色修复 → 重跑门禁（不可跳过，HC-12）
 - GoldenSet 签收只由用户手动执行，任何角色禁止写入
 - 门禁A5：MedReview 产出主复习资料 MD，编排者核对 MD 结构完整（标题层级/模块划分/附录齐全）
+- **门禁A5 附加（HC-20/D0 · 2026-10-18，有教师重点/复习大纲输入的批次强制）**：跑 `python {SKILL}/scripts/check_keypoint_coverage.py --keypoints <教师重点原文> --md <主复习资料 MD>`（数值/时间窗类硬事实缺失或重点条目缺 `📌 重点原文（第X条）` 落点 → exit 1 → 回退 Agent 5 补写；无教师重点输入 → `SKIPPED` 退出码 2，**不视为通过**）
 
 ## 2. 目录与命名（铁律）
 
@@ -41,6 +42,7 @@ GATE-A4   python {SKILL}/scripts/gate_check.py --batch {batchID} --stage agent4_
 MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batchID}/ALL_questions_FIXED.json --out 最终产物/{batchID}/ALL_questions_FIXED.md --title "{科目}·{模块}（{batchID}）"
 金标准配额  python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json   # 占比≥15% 通过
             无金标准时显式降级：追加 --golden-absent（报告留痕 degraded=true）
+重点覆盖  python {SKILL}/scripts/check_keypoint_coverage.py --keypoints 输入素材/{科目}/{科目}_教师重点_*.md --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md   # HC-20/D0 教师重点原文锚定（有教师重点输入的批次，门禁A5 与终审前各跑一次；exit 1 → 回退 Agent 5 补写；无教师重点输入 → SKIPPED）
 终审      python {SKILL}/scripts/gate_check.py --batch {batchID} --stage final
 ```
 
@@ -52,6 +54,27 @@ MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batch
   - 确无真题覆盖时**显式降级**：`check ... --golden-absent` → 报告留痕 `degraded: true` + `golden_status: "absent(降级)"`，并打印醒目警告。**不加该参数默认 fail-closed（占比不足即 FAIL）**，降级必须由操作者主动声明。
   - 降级批次**没有金标准兜底**，答案正确性完全由 MedQC + 人工签收负责 —— 请据此调整信任预期。
   - 最小可用金标准模板：`{SKILL}/assets/golden_set_template.json`（10–20 题即可生效）。
+- **教师重点覆盖（HC-20/D0 · 2026-10-18）**：有教师重点/复习大纲输入的批次，Agent 5 交付前必须产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）；编排者在门禁A5 与终审前跑 `check_keypoint_coverage.py`，数值/时间窗/分级界值缺失或重点条目缺 `📌 重点原文（第X条）` 锚点 → exit 1 → 回退 Agent 5 补写（batch039 突发性聋时间窗丢失教训）。
+
+### 门禁输入字段形状契约（2026-10-19 加固 · 防门禁误判）
+
+> 实证：三处「下游产物字段形状 ≠ 门禁解析形状」会导致门禁假 BLOCKED（内容本身合格），须由编排者在跑门禁前核对。
+
+| 产物字段 | 门禁解析形状 | 常见错误形状 | 后果 |
+|---|---|---|---|
+| `A3_质检报告.json` → `bloom_distribution.actual` | 扁平百分数 或 `{"actual":{...}}` / `{"actual_pct":{...}}` | `{"记忆":{"count":n,"ratio":r}}` 嵌套计数 | GATE-A3（BLOOM / BLOOM-RECOMPUTE）误判自述 0.0% → BLOCKED |
+| `AGENT4_追溯日志.json` → `source_file_synced` | **顶层** `source_file_synced`/`source_files_synced`（或 `patches[]` 全员 true） | 写在 `execution_metadata` 内部 | GATE-A4-HC13 误判 false → BLOCKED |
+| 主复习资料 MD → `📌 重点原文（第X条）` | `--keypoints` 文件的连续编号，落点行逐字照录该条原文 | 沿用来源文档印刷标号（源文档常跳号/重号） | 落点整体错位 → `partial_facts` 失败 |
+
+**编排者动作**：GATE-A3/A4 前先按上表核对形状；不符时**先判明是「形状不符」还是「内容不合格」**——形状不符可归一化（须留痕），内容不合格必须回退重做。
+
+### 押题卷交付（2026-10-19 · HC-18 修订）
+
+> 押题卷**交付形态由 HTML 改为 MD**（供刷题软件导入）。
+
+- **题型归一为三标签**：`单选题` / `多选题` / `判断题`；题目标题 `### N. [单选题|多选题|判断题｜Bloom] qid`，必须含 `**答案：X**` 行
+- **HTML 交付已下线**（`assets/quiz_template.html` 仅历史遗留，不再产出）
+- 押题卷不参与批次端到端生命周期（可对已签收批次按需组卷）；MD 进交付目录前必须过 `verify_produce_rules.py`；PDF 一律人工导出上传
 
 ### 事实校验（P1-1 · GATE-A2 前执行）
 
