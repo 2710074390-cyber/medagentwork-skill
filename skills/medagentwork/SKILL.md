@@ -120,7 +120,7 @@ cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scrip
 5. **GATE-A3**：D20≠0 且 Bloom 偏差≤15%
 6. **MedFix**（读 `references/medfix.md`）：按质检报告逐项修复，输出到 `最终产物/{batchID}/`（含追溯日志 `source_file_synced: true`）
 7. **GATE-A4 + MD 导出**：复检 FAIL==0 后运行 `qbank.py export-md` 生成 `ALL_questions_FIXED.md`（最终交付格式）
-8. **MedReview**（读 `references/medreview.md`）：生成教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`；**有教师重点/复习大纲输入时**（HC-20/D0）交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`
+8. **MedReview**（读 `references/medreview.md`；**有教师重点时先读 `references/bpa-v1.md`**）：生成复习资料。**有教师重点/复习大纲输入 → BPA v1.0 强制**：1+7 模块模板 + 八行卡片 + 附录五件套，输出到 `Obsidian产物/教师重点蓝图版/{科目}_教师重点蓝图版_主复习资料.md`（工程副本到 `复习资料/{科目}教师重点版/`）；无教师重点 → 教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`。两种情况都要在交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`
 9. **终审**：`gate_check.py --stage final`（HC-9/10/11 + JSON 完整性）→ **有教师重点输入时加跑 `check_keypoint_coverage.py`（HC-20）** → 用户审查 → 签收置 APPROVED → 用户手动把金标准题移入 `GoldenSet/`（仅用户操作）
 
 ## 5. 门禁命令速查
@@ -159,7 +159,7 @@ python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batchID}/ALL_ques
 
 # HTML 渲染（可选交付）
 python {SKILL}/scripts/render_qbank_html.py --input 题库.json --output 题库.html --title "..."
-python {SKILL}/scripts/render_review.py "复习资料/xxx.md"   # 自包含 HTML
+# 复习资料不再产出 HTML（BPA v1.0 / 2026-10-22 起只交付 MD）
 
 # 状态与契约
 python {SKILL}/scripts/workflow_state.py --show {batchID}
@@ -178,7 +178,7 @@ python {SKILL}/scripts/contract_check.py --batch {batchID}   # 产物 vs schemas
 | 产物 | 交付格式 | 说明 |
 |---|---|---|
 | 题库 | **JSON（机器可读源）+ MD（用户可读交付）** | MD 由 `qbank.py export-md` 生成，✅ 答案标记/解析/页码 |
-| 复习资料 | MD（+ 可选 HTML：`render_review.py`） | 仅用站端渲染器子集，禁 Mermaid（用 ASCII 图） |
+| 复习资料 | **仅 MD**（有教师重点时走 BPA v1.0：`Obsidian产物/教师重点蓝图版/`） | HTML 交付已下线；仅用站端渲染器子集，禁 Mermaid（用 ASCII 图）；PDF 人工导出 |
 | 押题卷 | **MD**（`押题卷_{科目}_{N}题.md`；题型归一为 单选题/多选题/判断题） | HTML 交付已下线（`assets/quiz_template.html` 仅历史遗留）；PDF 一律人工上传 |
 
 - 交付前必须过 `verify_produce_rules.py`（FAIL==0）；PDF 一律人工上传，管线/脚本禁止生成

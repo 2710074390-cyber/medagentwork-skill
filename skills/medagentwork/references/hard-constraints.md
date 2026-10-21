@@ -91,7 +91,16 @@
 - **条号基准（2026-10-19 加固）**：`第X条` 一律取 **`--keypoints` 文件的连续编号**（多来源时以编排者下发的「教师重点锚定清单」第四节编号为唯一基准）。来源文档自身标号常有**跳号/重号**（batch040 实证：源①缺 13、37，78 与 86 各重复一次），**禁止直接沿用印刷标号**——否则落点整体错位（batch040 返工重编 72 行）；锚定清单每行尾部以 `〔源X原标号N〕` 供倒查。落点行正文须**逐字照录该条原文**（全部数值/时间窗/界值/百分比/并列与禁止结构须完整落在该行内）。
 - **冲突裁决**：**原文锚定 > 原创性**。行为约束"不逐字复制任何单一来源"仅约束教材正文的叙述性文字，**不适用于教师重点条目**——教师重点是范围与强调的唯一权威载体。
 - **机械化门禁（HC-12 扩展）**：`python {SKILL}/scripts/check_keypoint_coverage.py --keypoints <教师重点原文> --md <主复习资料 MD> [--allowlist <文件>]` → 数值/时间窗类硬事实缺失 → **FAIL，退出码 1 → 回退 Agent 5 补写，不得放行**；无教师重点输入的批次 → 显式 `SKIPPED`（退出码 2），**不视为通过**。门禁A5 与终审前由编排者执行。
-- **规则文本**：完整 D0 段、V17 自检见 `references/prompts/Agent5_MedReview_Prompt.md`；执行细则见 `references/medreview.md` 与 `references/runbook.md` §3。
+- **规则文本**：完整 D0 段、V17 自检见 `references/prompts/Agent5_MedReview_Prompt.md`；**BPA v1.0 生成规则见 `references/bpa-v1.md`（有教师重点输入时强制，2026-10-22 起生效）**；执行细则见 `references/medreview.md` 与 `references/runbook.md` §3。
+
+### HC-20b BPA v1.0（教师重点蓝图版）· 2026-10-22 起强制
+
+- **触发**：凡有教师重点 / 复习大纲 / 锚定清单输入的批次，复习资料**必须**按 `references/bpa-v1.md` 生成，不得回退到教材目录平铺。
+- **结构**：科目层（蓝图 + 三路径 + 五主轴 + 十陷阱 + 谱系 + 跨模块地图）+ 模块 1+7（封面/前置/摘要/卡群/对比/因果/决策/一页纸+自测）+ 附录五件套。
+- **卡片**：八行字段（锚点/题眼/为什么/机制链/鉴别/红线/下一步/自测）；锚点行 `📌` 开头不包 `<b>`，其余字段 `<b>` 开头。
+- **锚点自足**：主题名锚点不合格，必须回源补足；补不出标 `ambiguous`，不得编造。
+- **门禁**：`check_keypoint_coverage.py` 必须 PASS（硬事实缺失 0 + 落点行内事实缺失 0）；每模块 8 区块齐全、≥8 道检索题。
+- **交付**：仅 MD（`Obsidian产物/教师重点蓝图版/`），**不产出 HTML**，PDF 人工导出。
 
 ## 产物形态契约（HC-18b · 2026-10-19 押题卷改 MD 修订）
 
@@ -99,7 +108,7 @@
 |------|---------|-----|
 | 押题卷 | **仅 MD**（`押题卷_{科目}_{N}题.md`；题型归一为 **单选题/多选题/判断题**，供刷题软件导入）。**HTML 交付已下线**（`assets/quiz_template.html` 仅历史遗留，不再产出） | **一律人工上传**，管线/脚本禁止生成 |
 | 题库 | **MD + HTML**（MD：ALL_questions_FIXED.md；HTML：`render_qbank_html.py`） | **一律人工上传** |
-| 复习资料 | **MD + HTML**（MD：MedReview；HTML：`render_review.py`） | **一律人工上传** |
+| 复习资料 | **仅 MD**（MedReview；有教师重点时走 BPA v1.0）。**HTML 交付已下线**（`render_review.py` 仅历史遗留，不再产出） | **一律人工上传**，管线/脚本禁止生成 |
 
 - 禁区：交付目录内不得产出 `.pdf`；禁止任何脚本调用 weasyprint/pdfkit 等 PDF 工具链。
 - 复习资料 MD 仅使用渲染器子集：h1-h6/表格/粗斜体/代码块/**Obsidian Callout（> [!TYPE]）**/`<details open>`/列表/hr；**禁 Mermaid**（用 ASCII 图）、禁其它 HTML 标签、禁 YAML front matter
