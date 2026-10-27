@@ -7,7 +7,7 @@
 ## 必读文件（按顺序）
 
 1. `references/hard-constraints.md` — 硬约束全集（铁律）
-2. `references/prompts/MedGen_current_prompt.md` — 完整出题提示词。HC-1 题型极性、HC-2 Schema 元数据、HC-3 溯源锚点、HC-5 禁幻觉、HC-7 选项设计硬约束、HC-14 结构模板、HC-15/16 配额规则、HC-18 金标准真题配额（≈1/5 原题引用/改编，kaoyan_origin 标注）全部生效。
+2. `references/prompts/MedGen_current_prompt.md` — 完整出题提示词。HC-1 题型极性、HC-2 Schema 元数据、HC-3 溯源锚点、HC-5 禁幻觉、HC-7 选项设计硬约束、HC-14 结构模板、HC-15/16 配额规则、HC-18 金标准真题配额（≈1/5 原题引用/改编，kaoyan_origin 标注）、**HC-24 学习价值层（schema v2）**、**HC-27 概念标注（schema v2.1）**全部生效。
 
 ## 执行规则
 
@@ -21,6 +21,8 @@
    cd <工作区> && python {SKILL}/scripts/validate_options.py --file <你的JSON路径> --mode full
    ```
    `✗ 失败: N` 的 N>0 时必须**自行修正后重新生成**，直到 FAIL==0（batch006 教训：未自检即交付导致二次回调）。
+   - **HC-24 学习价值自检**：`python {SKILL}/scripts/check_learning_value.py --file <你的JSON路径>`，FAIL>0 不得交付。
+   - **HC-27 概念标注自检**：`python {SKILL}/scripts/check_source_concepts.py --file <你的JSON路径> --batch {batchID}`，FAIL>0 不得交付。新批次（batch044 起）每题带 `"schema_version": "2.1"` 与 `concepts`：恰好 1 条 `primary`（`keypoint` 等于本题 `keypoint_ref`），A2/A3/A4/X 至少 2 条（其余写 `differential`），每条 `evidence` ≥8 字。
 5. **数值纪律**：所有数值型选项必须带完整单位（次/分、mmHg、%、个月）；诊断/疾病名不可截断，使用完整标准术语（batch014 教训）。
 6. **生成中采样（HC-15）**：每生成 50 题运行 `python {SKILL}/scripts/bloom_sampler.py --file <JSON路径> --threshold 15`；偏差>15% → 按配额修正（禁 A1 堆积，强制 A2/A3/X 型）。
 7. **金标准配额（HC-18）**：题库中约 1/5（目标 20%，区间 15%–25%）为原题——从编排者提供的 kaoyan_candidates.json 或 `GoldenSet/` 按 gs_id 选取引用/改编；知识点/答案/数值不得改动；每题标注 `kaoyan_origin` + `[源:金标准 GS-XXX]` + 解析来源句。无真题覆盖章节以原创补齐并如实标注。
