@@ -13,6 +13,8 @@
 
 判定为 BPA 后，**教师重点原文是范围契约**：125 条就是 125 条，一条不能少，也不因权重低而删。
 
+> 视觉/排版：结构按本文件；字体、配色、卡片/表格/封面、打印与 Obsidian 基线以 `references/review-visual-spec.md` 为准。
+
 ## 1. 结构骨架（不可裁剪）
 
 ```
@@ -111,6 +113,7 @@ python {SKILL}/scripts/check_keypoint_coverage.py \
 | 工程副本 | `复习资料/{科目}教师重点版/{科目}教师重点版_BPA_主复习资料.md` |
 | PDF | **人工从 Obsidian 导出**，管线/脚本禁止生成；站点用人工导出的 PDF |
 | HTML | **不再产出**（复习资料 HTML 已下线）；不得为交付而生成本地 HTML 预览 |
+| 视觉基线 | 可选 `assets/review-visual.css`（Obsidian CSS 片段/打印基线）；不是交付物，视觉规范见 `references/review-visual-spec.md` |
 | 过程产物 | 覆盖矩阵/ledger/自检报告放 `中间产物/{batchID}/`，**不进交付 MD** |
 
 ## 8. 反模式（出现即返工）

@@ -48,6 +48,7 @@ MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batch
             无金标准时显式降级：追加 --golden-absent（报告留痕 degraded=true）
 重点覆盖  python {SKILL}/scripts/check_keypoint_coverage.py --keypoints "输入素材/{科目}/{科目}_教师重点_<学校或日期>.md" --md "复习资料/{科目}教学计划版/{科目}_主复习资料.md"   # HC-20/D0（--keypoints 按实际文件名传入，脚本不展开 * 通配符；exit 1 → 回退 Agent 5 补写；无教师重点输入 → SKIPPED）
 详细度    python {SKILL}/scripts/check_review_detail.py --md 复习资料/{科目}教师重点版/{科目}教师重点版_主复习资料.md --mode auto --profile release_teacher_keypoint   # HC-26（门禁A5 与终审前各跑一次；enforce FAIL → 返工）
+视觉/排版 python {SKILL}/scripts/check_review_visual.py --md 复习资料/{科目}教师重点版/{科目}教师重点版_主复习资料.md --profile release_teacher_keypoint   # V1–V5/V14；规范见 review-visual-spec.md
 学习价值  python {SKILL}/scripts/check_learning_value.py --file 最终产物/{batchID}/ALL_questions_FIXED.json   # HC-24（schema 2.0 批次；FAIL>0 不得交付）
 概念标注  python {SKILL}/scripts/check_source_concepts.py --file 最终产物/{batchID}/ALL_questions_FIXED.json --batch {batchID}   # HC-27（schema 2.1 批次；旧批次 SKIP）
 概念图    python {SKILL}/scripts/check_concept_graph.py --subject {科目}   # C1–C8（需 KC 注册表；单科约 0.4s）
@@ -108,6 +109,7 @@ python {SKILL}/scripts/fact_check.py golden --file 中间产物/{batchID}/ALL_qu
 | 门禁 BLOCKED | 读 gate 的 reason → 回退对应角色修复 → 重新运行门禁 |
 | JSON 解析失败 / YAML 前置 | 要求角色输出纯 JSON 数组，元数据单独 .md（batch006 教训） |
 | 教师重点覆盖门禁报“原文不存在”/ exit 2 | `--keypoints` 传入实际文件名（不是 `*`）；建议命名 `{科目}_教师重点_<学校或日期>.md`；多份重点先合并 |
+| 视觉门禁 FAIL | 读 `review_visual_*.json` 的 `checks`；优先处理 `<details>`/Mermaid/`**`；再补 Callout（≥4/模块）、展开区（≥2/模块）、表格与三色标记；规范见 `references/review-visual-spec.md` |
 | 选项截断/缺单位 | validate R7/R8/R9 → MedFix 修复，禁止暴力截断（batch014 教训） |
 | Bloom 偏差 >15% | 回退 MedGen 按配额修正（`bloom_sampler.py`，HC-15） |
 | 补丁未溯源 | 追溯日志缺 source_file_synced → 打回 MedFix（HC-13，batch014 教训） |

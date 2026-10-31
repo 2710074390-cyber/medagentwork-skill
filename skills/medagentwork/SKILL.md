@@ -144,6 +144,7 @@ archive/             # 签收归档
   - `references/hard-constraints.md` — HC/D/R 硬约束全集（出题质检的规则底座）
   - `references/quality-gate.md` — **HC-25 全流程质量基准与 R0–R4 阶段门禁**（profile/阈值/豁免规则）
   - `references/review-detail.md` — **HC-26 复习资料详细度契约**（九槽位/八块/阈值/门禁）
+  - `references/review-visual-spec.md` — **复习资料视觉/排版规范**（设计 token、字体、卡片/表格/封面、打印、Obsidian 基线、V1–V14）
   - `references/concept-layer.md` — **HC-27 概念标注与概念层**（节点/三类边/C1–C8/概念卡）
   - `references/prompts/` — 五个角色的完整提示词（出题/质检的深度规范）
 
@@ -156,7 +157,7 @@ archive/             # 签收归档
 5. **GATE-A3**：D20≠0 且 Bloom 偏差≤15%
 6. **MedFix**（读 `references/medfix.md`）：按质检报告逐项修复，输出到 `最终产物/{batchID}/`（含追溯日志 `source_file_synced: true`）
 7. **GATE-A4 + MD 导出**：复检 FAIL==0 后运行 `qbank.py export-md` 生成 `ALL_questions_FIXED.md`（最终交付格式）
-8. **MedReview**（读 `references/medreview.md`；**有教师重点时先读 `references/bpa-v1.md`**）：生成复习资料。**有教师重点/复习大纲输入 → BPA v1.0 强制**：1+7 模块模板 + 八行卡片 + 附录五件套，输出到 `Obsidian产物/教师重点蓝图版/{科目}_教师重点蓝图版_主复习资料.md`（工程副本到 `复习资料/{科目}教师重点版/`）；无教师重点 → 教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`。两种情况都要在交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`；**再自跑 `check_review_detail.py`（HC-26 详细度 · 正式交付必须 PASS）**——掌握级九槽位、模块八块、自测答案覆盖三项缺一即 FAIL，交付物必须是**合并后的单一 MD**（分片只留 `中间产物/`）
+8. **MedReview**（读 `references/medreview.md`；**有教师重点时先读 `references/bpa-v1.md`**）：生成复习资料。**有教师重点/复习大纲输入 → BPA v1.0 强制**：1+7 模块模板 + 八行卡片 + 附录五件套，输出到 `Obsidian产物/教师重点蓝图版/{科目}_教师重点蓝图版_主复习资料.md`（工程副本到 `复习资料/{科目}教师重点版/`）；无教师重点 → 教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`。两种情况都要在交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`；**再自跑 `check_review_detail.py`（HC-26 详细度 · 正式交付必须 PASS）**——掌握级九槽位、模块八块、自测答案覆盖三项缺一即 FAIL；**并自跑 `check_review_visual.py`（视觉/排版门禁）**——三色覆盖、Callout 密度、视觉呼吸、展开区、表格、导出兼容任一 FAIL 即返工；交付物必须是**合并后的单一 MD**（分片只留 `中间产物/`）
 9. **终审**：`gate_check.py --stage final`（HC-9/10/11 + JSON 完整性）→ **有教师重点输入时加跑 `check_keypoint_coverage.py`（HC-20）** → **题库/押题卷批次加跑 `check_source_concepts.py`（HC-27 概念标注，schema 2.1）**；有 KC 注册表时加跑 `check_concept_graph.py`（概念图 C1–C8）→ 用户审查 → 签收置 APPROVED → 用户手动把金标准题移入 `GoldenSet/`（仅用户操作）
 
 ### 4.1 阶段门禁与质量基准（HC-25）
@@ -166,8 +167,8 @@ archive/             # 签收归档
 | 阶段 | 本 skill 可跑的门禁 |
 |---|---|
 | R1 | `contract_check.py`、`ingest.py`（契约可解析） |
-| R2 | `validate_options.py`、`gate_check.py`、`bloom_sampler.py`、`check_learning_value.py`、`check_source_concepts.py`、`check_concept_graph.py`、`check_review_detail.py`、`spaced_schedule.py` |
-| R3 | `verify_produce_rules.py`、`check_keypoint_coverage.py`、`check_review_detail.py --profile release_*` |
+| R2 | `validate_options.py`、`gate_check.py`、`bloom_sampler.py`、`check_learning_value.py`、`check_source_concepts.py`、`check_concept_graph.py`、`check_review_detail.py`、`check_review_visual.py`、`spaced_schedule.py` |
+| R3 | `verify_produce_rules.py`、`check_keypoint_coverage.py`、`check_review_detail.py --profile release_*`、`check_review_visual.py --profile release_*` |
 | R4 | 学习结果回收与复盘记录（人工） |
 
 只允许 WARN 豁免；同一问题连续两版 WARN 自动升级 BLOCKED；R3 `enforce` BLOCKED 禁止交付。
@@ -216,6 +217,9 @@ python {SKILL}/scripts/check_keypoint_coverage.py --keypoints "输入素材/{科
 # 复习资料详细度（HC-26 · 正式交付必须 PASS；模块版用 --mode module，课程安排版用 --mode course_schedule）
 python {SKILL}/scripts/check_review_detail.py --md 复习资料/{科目}教师重点版/{科目}教师重点版_主复习资料.md --mode auto --profile release_teacher_keypoint --json-out reports/validate/review_detail_{科目}.json --md-out reports/validate/review_detail_{科目}.md
 
+# 复习资料视觉/排版（视觉规范见 references/review-visual-spec.md；正式交付必须 PASS）
+python {SKILL}/scripts/check_review_visual.py --md 复习资料/{科目}教师重点版/{科目}教师重点版_主复习资料.md --profile release_teacher_keypoint --json-out reports/validate/review_visual_{科目}.json --md-out reports/validate/review_visual_{科目}.md
+
 # 题目学习价值层（HC-24 · schema_version=2.0 批次）
 python {SKILL}/scripts/check_learning_value.py --file 最终产物/{batchID}/ALL_questions_FIXED.json   # FAIL>0 不得交付
 
@@ -256,14 +260,15 @@ python {SKILL}/scripts/contract_check.py --batch {batchID}   # 产物 vs schemas
 | 产物 | 交付格式 | 说明 |
 |---|---|---|
 | 题库 | **JSON（机器可读源）+ MD（用户可读交付）** | MD 由 `qbank.py export-md` 生成，✅ 答案标记/解析/页码 |
-| 复习资料 | **仅 MD**（有教师重点时走 BPA v1.0：`Obsidian产物/教师重点蓝图版/`） | HTML 交付已下线；仅用站端渲染器子集，禁 Mermaid（用 ASCII 图）；PDF 人工导出 |
+| 复习资料 | **仅 MD**（有教师重点时走 BPA v1.0：`Obsidian产物/教师重点蓝图版/`） | HTML 交付已下线；仅用 Obsidian/PDF 兼容的 Markdown 子集，禁 Mermaid（用 ASCII 图）；PDF 人工导出 |
 | 押题卷 | **MD**（`押题卷_{科目}_{N}题.md`；题型归一为 单选题/多选题/判断题） | HTML 交付已下线（`assets/quiz_template.html` 仅历史遗留）；PDF 一律人工上传 |
 
 - 交付前必须过 `verify_produce_rules.py`（FAIL==0）；PDF 一律人工上传，管线/脚本禁止生成
 - 押题卷 MD 题目标题只允许 `### N. [单选题｜多选题｜判断题｜Bloom] qid` 形态，且必须含 `**答案：X**` 行
 
 - 复习资料 MD 附录必含：教材页码索引（真实页码禁占位）、术语同意异名对照表
-- 复习资料 MD 仅用：h1-h6/表格/粗斜体/代码块/Obsidian Callout/`<details open>`/列表/hr；加粗用 `<b>`（导出兼容 E1-E3）
+- 复习资料 MD 仅用：h1-h6/表格/粗斜体/代码块/Obsidian Callout/`#### 🔬 展开`/列表/hr；加粗用 `<b>`（导出兼容 E1-E3）；**禁用 `<details>/<summary>`**
+- 视觉/排版口径（字体、配色、卡片/表格/封面、打印、Obsidian 基线）以 `references/review-visual-spec.md` 为准
 
 ### 6.1 金标准（GoldenSet）冷启动与降级模式
 

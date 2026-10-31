@@ -78,8 +78,8 @@ R0 需求评审 → R1 开发实现 → R2 测试验证 → R3 发布上线 → 
 |---|---|---|---|---|
 | **R0 需求评审** | 教师重点/大纲、教材范围、出题蓝图、目标批次 | 明确范围/非目标、验收标准、风险、产物形态、是否需要 KC / 评分卡 / 学习价值层 | 必需输入齐全；范围/验收/风险已写；用户确认 | 用户 + MedMaster + 医学内容专家 |
 | **R1 开发实现** | R0 确认的需求、教师重点、蓝图、既有脚本/契约 | 建/改 Schema 与数据契约；冻结基线；单元测试；**不修改源产物** | Schema 可解析；回归测试通过 | AI 工程 + 医学内容（规则） |
-| **R2 测试验证** | R1 产物、题库、评分卡、KC 映射、复习资料 MD | 选项校验、质检、Bloom、学习价值、**详细度契约**、概念图、内容专家抽检 | item FAIL=0；评分卡达标；详细度 ≥80%；概念图 C1–C7 无 BLOCK | AI 工程 + 学习科学 + 医学内容 + 质量 |
-| **R3 发布上线** | R2 通过版本、评分卡、产物形态 | 形态门禁、链接检查、发布说明、回滚方案、签收 | 评分卡 ≥3.8；详细度 enforce PASS；形态全 PASS | MedMaster + 质量 + 用户 |
+| **R2 测试验证** | R1 产物、题库、评分卡、KC 映射、复习资料 MD | 选项校验、质检、Bloom、学习价值、**详细度契约**、**视觉/排版**、概念图、内容专家抽检 | item FAIL=0；评分卡达标；详细度 ≥80%；视觉 V1–V5/V14 PASS；概念图 C1–C7 无 BLOCK | AI 工程 + 学习科学 + 医学内容 + 质量 |
+| **R3 发布上线** | R2 通过版本、评分卡、产物形态 | 形态门禁、链接检查、发布说明、回滚方案、签收 | 评分卡 ≥3.8；详细度 enforce PASS；视觉 V1–V5/V14 PASS；形态全 PASS | MedMaster + 质量 + 用户 |
 | **R4 运行复盘** | 线上/已交付版本、学习数据/反馈 | 健康检查、学习结果回收、问题归档、下一轮改进 | 无 P0 回归；反馈有记录；行动项进入下一轮 | MedMaster + 学习科学 + 用户 |
 
 **各阶段红线：**
@@ -103,13 +103,15 @@ R0 需求评审 → R1 开发实现 → R2 测试验证 → R3 发布上线 → 
 | R2 | 生成期概念标注（HC-27） | `check_source_concepts.py` |
 | R2 | 概念图（C1–C8） | `check_concept_graph.py` |
 | R2 | 复习资料详细度（HC-26） | `check_review_detail.py` |
+| R2 | 复习资料视觉/排版（V1–V5 + V14） | `check_review_visual.py` |
 | R2 | 自测答案对账 / 间隔调度 | `spaced_schedule.py` |
 | R3 | 形态契约（HC-18） | `verify_produce_rules.py` |
 | R3 | 教师重点覆盖（HC-20） | `check_keypoint_coverage.py` |
 | R3 | 详细度 enforce | `check_review_detail.py`（`--profile release_*`） |
+| R3 | 视觉/排版 enforce | `check_review_visual.py`（`--profile release_*`） |
 | R4 | 学习结果 / 复盘 | `reports/` 人工归档 |
 
-> 原项目另有 `quality_gate.py`（R0–R4 编排器）与本 skill 未分发的外部检查器（站点最新性、评分卡、KC 注册表）。**本 skill 不随包分发编排器**——按上表逐条运行脚本，自行汇总 PASS/WARN/BLOCKED 到 `reports/gate/quality_gate_{batchID}_{stage}.md` 即可。缺什么检查项，就在报告里显式写 SKIPPED 与原因。
+> 本 skill 已包含分发版 `quality_gate.py`（R0–R4 编排器），只检查本包实际提供的门禁；站点最新性、评分卡、KC 注册表等原项目专属检查不在包内。也可按上表逐条运行脚本，自行汇总 PASS/WARN/BLOCKED 到 `reports/gate/quality_gate_{batchID}_{stage}.md`。缺什么检查项，就在报告里显式写 SKIPPED 与原因。
 
 **质量报告路径约定：** `reports/gate/quality_gate_{batchID}_{stage}_{timestamp}.json|md`
 **证据保留：** 至少保留到下一版本发布 + 30 天；关键发布证据长期保留。
@@ -151,6 +153,7 @@ R0 需求评审 → R1 开发实现 → R2 测试验证 → R3 发布上线 → 
 | HC-20 教师重点锚定 | R2 必查；R3 发布前必须 PASS；HC-26 不替代逐条覆盖 |
 | HC-24 题目学习价值层 | R2 的 `learning_value` 检查；新批次 `schema_version=2.0` 强制 |
 | HC-26 复习资料详细度 | R2/R3 的 `review_detail` 检查；标准见 `references/review-detail.md` |
+| 复习资料视觉/排版 | R2/R3 的 `review_visual` 检查；标准见 `references/review-visual-spec.md` |
 | HC-27 概念标注 | R2 的 `source_concepts` + `concept_graph` 检查；见 `references/concept-layer.md` |
 | HC-18 产物形态 | R3 的 `verify_produce_rules.py` |
 | HC-17 状态单一入口 | 门禁不写 `workflow_state.json`；状态推进仍走 `workflow_state.py` |

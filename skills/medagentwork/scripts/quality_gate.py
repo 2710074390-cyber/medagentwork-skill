@@ -482,6 +482,47 @@ def check_review_detail(args, profile: dict, mode: str) -> dict:
     )
 
 
+def check_review_visual(args, profile: dict, mode: str) -> dict:
+    """复习资料视觉/排版门禁（V1–V5 + V14；规范见 review-visual-spec.md）。"""
+    md = Path(args.review)
+    if not md.exists():
+        return check_item("r2.review_visual", "SKIP",
+                          f"批次无复习资料产物，视觉检查不适用：{args.review}", required=False)
+    out = BASE / "reports/validate" / f"review_visual_{args.batch}_{args.stage}.json"
+    cmd = [sys.executable, "scripts/check_review_visual.py",
+           "--md", str(md), "--profile", args.profile,
+           "--json-out", str(out), "--quiet"]
+    if mode == "advisory":
+        cmd.append("--advisory")
+    r = run_cmd(cmd)
+    if not out.exists():
+        return check_item("r2.review_visual", "FAIL", "视觉检查未产出报告", details=r)
+    try:
+        data = read_json(out)
+    except Exception as exc:
+        return check_item("r2.review_visual", "FAIL",
+                          f"视觉报告解析失败：{exc}", details={"path": str(out)})
+    status = str(data.get("status") or "FAIL")
+    if status == "SKIP":
+        return check_item("r2.review_visual", "SKIP",
+                          "视觉检查跳过（未解析到内容段）", required=False,
+                          details={"path": str(out), "summary": data.get("summary")})
+    issues = list(data.get("blocking") or [])
+    if status == "FAIL" and mode == "advisory":
+        status = "WARN"
+        issues.append("advisory 模式：FAIL 降级为 WARN")
+    s = data.get("summary", {})
+    reason = "; ".join(issues) or (
+        f"三色覆盖 {s.get('tier_coverage')}；Callout {s.get('callouts')}；"
+        f"展开区 {s.get('expand_blocks')}；表格 {s.get('tables')}；"
+        f"最长纯文本 {s.get('max_plain_text_run')} 行"
+    )
+    return check_item(
+        "r2.review_visual", status, reason,
+        details={"path": str(out), "mode": data.get("mode"), "summary": s, "command": r},
+    )
+
+
 def check_source_concepts(args) -> dict:
     """HC-27 生成期概念标注门禁：按批次号判定，旧批次 SKIP。"""
     out = BASE / "reports/validate" / f"source_concepts_{args.batch}_{args.stage}.json"
@@ -647,6 +688,8 @@ def build_stage_checks(args, profile: dict, mode: str) -> list[dict]:
         checks.append(check_scorecard(args, profile, mode))
     if "review_detail" in req:
         checks.append(check_review_detail(args, profile, mode))
+    if "review_visual" in req:
+        checks.append(check_review_visual(args, profile, mode))
     if "source_concepts" in req:
         checks.append(check_source_concepts(args))
     if "concept_graph" in req:

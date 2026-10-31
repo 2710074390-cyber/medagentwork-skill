@@ -1,15 +1,16 @@
 {
   "schema_version": 1,
-  "policy_version": "1.2.0",
-  "updated_at": "2026-10-27",
+  "policy_version": "1.3.0",
+  "updated_at": "2026-10-31",
   "owner": "MedMaster",
-  "source": "references/quality-gate.md#HC-25",
+  "source": "references/quality-gate.md#HC-25 + references/review-visual-spec.md",
   "profiles": {
     "pilot": {
       "description": "试点/研究性版本：advisory 为主，不阻断旧交付；新批次仍须显式记录 WARN。",
       "required_checks": [
         "item_learning_value",
         "review_detail",
+        "review_visual",
         "source_concepts",
         "concept_graph"
       ],
@@ -30,6 +31,12 @@
         "review_detail_selftest_answer_min": 0.95,
         "review_detail_module_block_min": 0.85,
         "review_detail_case_module_min": 0.85,
+        "visual_tier_coverage_min": 0.90,
+        "visual_callout_density_min": 4.0,
+        "visual_callout_types_min": 4,
+        "visual_expand_density_min": 2.0,
+        "visual_tables_per_module_min": 2,
+        "visual_plain_text_run_max": 10,
         "schedule_min_chars": 1000,
         "schedule_min_units": 10,
         "kc_mapped_ratio": 1.0,
@@ -56,6 +63,7 @@
       "required_checks": [
         "item_learning_value",
         "review_detail",
+        "review_visual",
         "source_concepts",
         "concept_graph",
         "produce_rules"
@@ -77,6 +85,12 @@
         "review_detail_selftest_answer_min": 1.0,
         "review_detail_module_block_min": 1.0,
         "review_detail_case_module_min": 1.0,
+        "visual_tier_coverage_min": 0.90,
+        "visual_callout_density_min": 4.0,
+        "visual_callout_types_min": 4,
+        "visual_expand_density_min": 2.0,
+        "visual_tables_per_module_min": 2,
+        "visual_plain_text_run_max": 10,
         "schedule_min_chars": 1200,
         "schedule_min_units": 12,
         "kc_mapped_ratio": 1.0,
@@ -103,7 +117,8 @@
       "required_checks": [
         "keypoint_coverage",
         "produce_rules",
-        "review_detail"
+        "review_detail",
+        "review_visual"
       ],
       "thresholds": {
         "review_detail_core_min_chars": 1000,
@@ -134,7 +149,13 @@
         "scorecard_overall_enforce": 3.8,
         "critical_dim_min": 3.5,
         "expand_density_min": 2.0,
-        "callout_density_min": 4.0
+        "callout_density_min": 4.0,
+        "visual_tier_coverage_min": 0.90,
+        "visual_callout_density_min": 4.0,
+        "visual_callout_types_min": 4,
+        "visual_expand_density_min": 2.0,
+        "visual_tables_per_module_min": 2,
+        "visual_plain_text_run_max": 10
       }
     }
   }

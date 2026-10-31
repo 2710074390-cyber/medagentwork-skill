@@ -206,5 +206,71 @@ check("doctor 在示例工作区 exit 0", r.returncode == 0, r.stdout[-300:] + r
 r = run(f'python "{SCRIPTS + "/validate_options.py"}" --batch batch001 --mode full', cwd=example_ws)
 check("示例题库 validate exit 0", r.returncode == 0, r.stdout[-300:] + r.stderr[:200])
 
+print("== 13. 复习资料视觉门禁（V1–V5 + V14） ==")
+visual_valid = WS / "_visual_valid.md"
+visual_valid.write_text("""# 示例复习资料
+
+## 模块1：示例
+
+#### 🔴 K-M01-001｜示例考点一
+
+📌 重点原文（第1条）：示例原文。
+
+<b>🎯 定位</b>：一句话题眼。
+<b>🧬 机制</b>：正常到异常的因果。
+
+> [!WARNING] 红线
+> 示例红线。
+
+> [!TIP] 记忆
+> 示例口诀。
+
+| 鉴别 | 甲 | 乙 |
+|---|---|---|
+| 关键轴 | 甲特征 | 乙特征 |
+
+#### 🔬 展开：机制
+
+> [!INFO] 图示说明
+> 示例说明。
+
+> [!NOTE] 补充
+> 示例补充。
+
+#### 🟡 K-M01-002｜示例考点二
+
+<b>🎯 定位</b>：第二张卡。
+
+| 鉴别 | 甲 | 乙 |
+|---|---|---|
+| 关键轴 | 甲特征 | 乙特征 |
+
+#### 🔬 展开：鉴别
+
+> [!SUCCESS] 结论
+> 示例结论。
+""", encoding="utf-8")
+r = run(f'python "{SCRIPTS + "/check_review_visual.py"}" --md "{visual_valid}" '
+        f'--profile release_teacher_keypoint --quiet')
+check("视觉规范样例 PASS", r.returncode == 0, r.stdout[-300:] + r.stderr[:200])
+
+visual_invalid = WS / "_visual_invalid.md"
+visual_invalid.write_text("""# 示例复习资料
+
+## 模块1：示例
+
+#### 🔴 K-M01-001｜示例考点一
+
+**禁止的 Markdown 粗体**
+
+<details>
+<summary>折叠区</summary>
+折叠内容
+</details>
+""", encoding="utf-8")
+r = run(f'python "{SCRIPTS + "/check_review_visual.py"}" --md "{visual_invalid}" '
+        f'--profile release_teacher_keypoint --quiet')
+check("视觉门禁拦截 details/**", r.returncode == 1, r.stdout[-300:] + r.stderr[:200])
+
 print(f"\n{'=' * 40}\n结果: {PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

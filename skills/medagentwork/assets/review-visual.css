@@ -1,0 +1,252 @@
+/* ============================================================
+   MedAgentWork — 复习资料 Obsidian / 打印视觉基线
+   用途：复制到 <vault>/.obsidian/snippets/review-visual.css 后启用。
+   性质：可选基线，不是交付物；交付物仍是 MD。
+   规范：references/review-visual-spec.md（token/字号/阈值以该文件为准）
+   ============================================================ */
+
+:root {
+  --maw-text-primary: #1a1a2e;
+  --maw-text-secondary: #4a5568;
+  --maw-text-tertiary: #718096;
+  --maw-bg-primary: #fafbfc;
+  --maw-bg-secondary: #ffffff;
+  --maw-bg-tertiary: #f0f2f5;
+  --maw-bg-callout: #f8f9fb;
+  --maw-border: #e2e8f0;
+  --maw-border-light: #edf2f7;
+  --maw-master: #dc2626;
+  --maw-master-bg: #fef2f2;
+  --maw-master-border: #fecaca;
+  --maw-familiar: #d97706;
+  --maw-familiar-bg: #fffbeb;
+  --maw-familiar-border: #fde68a;
+  --maw-understand: #059669;
+  --maw-understand-bg: #ecfdf5;
+  --maw-understand-border: #a7f3d0;
+  --maw-warning: #d97706;
+  --maw-tip: #7c3aed;
+  --maw-info: #2563eb;
+  --maw-success: #059669;
+  --maw-accent: #2563eb;
+  --maw-font-body: -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Microsoft YaHei", "Hiragino Sans GB", "WenQuanYi Micro Hei", sans-serif;
+  --maw-font-mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --maw-content-width: 760px;
+  --maw-line-height: 1.8;
+}
+
+body.theme-dark {
+  --maw-text-primary: #e2e4e9;
+  --maw-text-secondary: #a0a6b5;
+  --maw-text-tertiary: #6b7280;
+  --maw-bg-primary: #0f1117;
+  --maw-bg-secondary: #161822;
+  --maw-bg-tertiary: #1e2030;
+  --maw-bg-callout: #1a1c2a;
+  --maw-border: #2a2d3a;
+  --maw-border-light: #222433;
+  --maw-master-bg: #3b1219;
+  --maw-master-border: #5c1f24;
+  --maw-familiar-bg: #3b2f0a;
+  --maw-familiar-border: #5c4a1a;
+  --maw-understand-bg: #0a2e1f;
+  --maw-understand-border: #1a4a30;
+}
+
+/* ---------- 阅读版心 ---------- */
+.markdown-rendered {
+  max-width: var(--maw-content-width);
+  margin: 0 auto;
+  font-family: var(--maw-font-body);
+  font-size: 15px;
+  line-height: var(--maw-line-height);
+  color: var(--maw-text-primary);
+}
+
+.markdown-rendered p {
+  margin: 0.55em 0;
+}
+
+/* ---------- 标题层级 ---------- */
+.markdown-rendered h1 {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.25;
+  margin: 0 0 0.5em;
+}
+
+.markdown-rendered h2 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 1.8em 0 0.7em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--maw-border);
+}
+
+.markdown-rendered h3 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 1.4em 0 0.55em;
+}
+
+.markdown-rendered h4 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 1.1em 0 0.45em;
+  padding-left: 0.55em;
+  border-left: 3px solid var(--maw-accent);
+}
+
+/* 考点卡标题：🔴/🟡/🟢 仍由 emoji 与文字等级承担色彩语义，
+   这里只统一卡片标题的视觉重量，不做颜色替换。 */
+.markdown-rendered h4 {
+  color: var(--maw-text-primary);
+}
+
+/* ---------- 表格 ---------- */
+.markdown-rendered table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  margin: 0.8em 0 1.1em;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.markdown-rendered th,
+.markdown-rendered td {
+  border: 1px solid var(--maw-border);
+  padding: 0.45em 0.6em;
+  vertical-align: top;
+  text-align: left;
+  word-break: break-word;
+}
+
+.markdown-rendered th {
+  background: var(--maw-bg-tertiary);
+  font-weight: 600;
+}
+
+.markdown-rendered tr:nth-child(even) td {
+  background: var(--maw-bg-callout);
+}
+
+/* ---------- 代码 / ASCII 图 ---------- */
+.markdown-rendered pre {
+  background: var(--maw-bg-callout);
+  border: 1px solid var(--maw-border);
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  font-family: var(--maw-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.markdown-rendered code {
+  font-family: var(--maw-font-mono);
+  font-size: 0.92em;
+}
+
+/* ---------- Callout ---------- */
+.markdown-rendered .callout {
+  border: 1px solid var(--maw-border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 0.7em 0.9em;
+  margin: 0.9em 0;
+  background: var(--maw-bg-callout);
+}
+
+.markdown-rendered .callout-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 0.25em;
+}
+
+.markdown-rendered .callout-content p {
+  margin: 0.25em 0;
+}
+
+.markdown-rendered .callout[data-callout="warning"] {
+  border-left-color: var(--maw-warning);
+}
+
+.markdown-rendered .callout[data-callout="tip"] {
+  border-left-color: var(--maw-tip);
+}
+
+.markdown-rendered .callout[data-callout="info"] {
+  border-left-color: var(--maw-info);
+}
+
+.markdown-rendered .callout[data-callout="success"] {
+  border-left-color: var(--maw-success);
+}
+
+.markdown-rendered .callout[data-callout="note"] {
+  border-left-color: var(--maw-accent);
+}
+
+/* ---------- 分隔线与列表 ---------- */
+.markdown-rendered hr {
+  border: none;
+  border-top: 1px solid var(--maw-border);
+  margin: 1.4em 0;
+}
+
+.markdown-rendered ul,
+.markdown-rendered ol {
+  padding-left: 1.4em;
+}
+
+.markdown-rendered li {
+  margin: 0.22em 0;
+}
+
+/* ---------- 打印 / PDF ---------- */
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+
+  .markdown-rendered {
+    max-width: none;
+    font-size: 10.5pt;
+    line-height: 1.7;
+    color: #111;
+  }
+
+  .markdown-rendered h1 { font-size: 18pt; }
+  .markdown-rendered h2 { font-size: 14pt; }
+  .markdown-rendered h3 { font-size: 12pt; }
+  .markdown-rendered h4 { font-size: 10.5pt; }
+
+  .markdown-rendered h2,
+  .markdown-rendered h3,
+  .markdown-rendered h4,
+  .markdown-rendered table,
+  .markdown-rendered .callout,
+  .markdown-rendered pre {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .markdown-rendered table {
+    font-size: 9pt;
+  }
+
+  .markdown-rendered .callout {
+    background: #fff;
+  }
+
+  .markdown-rendered a {
+    color: inherit;
+    text-decoration: none;
+  }
+}

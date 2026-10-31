@@ -139,7 +139,7 @@ TRAE 也支持 **导入 .zip**（设置 → 技能与命令 → 创建 → 上�
 
 **其他兼容环境**：任何支持 Agent Skills（SKILL.md）规范的宿主均可，将 `skills/medagentwork/` 放入对应技能目录即可。
 
-**安装自检**（可选）：`python smoketest/run_smoketest.py` 会在临时工作区跑通「批次登记 → 坏题阻断 → 修复 → FAIL==0 放行 → MD 导出 → 规则命中断言 → 示例工作区引导」全链路（30 项断言），用于确认脚本在你机器上可用。如果只安装了 `skills/medagentwork/`，改用 `python {SKILL}/scripts/doctor.py --workspace <工作区>`。
+**安装自检**（可选）：`python smoketest/run_smoketest.py` 会在临时工作区跑通「批次登记 → 坏题阻断 → 修复 → FAIL==0 放行 → MD 导出 → 规则命中断言 → 示例工作区引导 → 视觉门禁」全链路（32 项断言），用于确认脚本在你机器上可用。如果只安装了 `skills/medagentwork/`，改用 `python {SKILL}/scripts/doctor.py --workspace <工作区>`。
 
 > 下文用 `{SKILL}` 表示技能安装目录（即包含 `SKILL.md` 的目录）。手动复制到 `.trae/skills/medagentwork/` 后，`{SKILL}` 就是该目录，不要再套一层 `skills/medagentwork`。
 
@@ -219,6 +219,7 @@ pip install -r requirements-optional.txt
 
 - **题库出题/校验阈值**：`skills/medagentwork/pipeline.yaml` 的 `thresholds:` 段，由 `scripts/pipeline_config.py` 在**运行时**读取（零依赖；未安装 PyYAML 时用内置最小解析器；读取失败回退内置默认值）。
 - **HC-25 的 R0–R4 阶段质量基准**：`scripts/quality_policy.json` 的 `profiles` 段（pilot / release_teacher_keypoint 等），由 `scripts/quality_policy.py` 与 `scripts/quality_gate.py` 读取。
+- **复习资料视觉阈值**：同上文件的 `visual_*` 段（三色覆盖、Callout 密度/类型、展开区、表格、连续纯文本上限），由 `scripts/check_review_visual.py` 读取。
 
 ```yaml
 thresholds:
@@ -247,6 +248,19 @@ thresholds:
 - `GATE-A3` 的 **Bloom 分布**已加固：门禁用题库 JSON **独立重算**并与自述值交叉验证，偏差 > 5% 即 BLOCKED。**GATE-A3 内只有 Bloom 这一维做了重算。**
 - **答案正确性的最终责任人是人工签收**；金标准比对只覆盖有真题的那部分配额。
 
+## 复习资料视觉规范
+
+复习资料**只交付 MD**；视觉与排版口径统一由 `references/review-visual-spec.md` 裁决，避免“提示词一套、渲染器一套”：
+
+- **结构**：BPA v1.0 的 1+7 模块、九槽位卡片、模块八块、附录五件套。
+- **视觉**：🔴🟡🟢 三色分级必须同时带“掌握/熟悉/了解”文字；5 种 Obsidian Callout；每模块 Callout ≥4 且类型 ≥4、展开区 ≥2；每 3–5 行一个视觉断点。
+- **排版**：正文 15px / 行高 1.8 / 单栏 720–780px；对比表 2–4 张/模块、单元格 ≤20 字；因果链与决策树用 ASCII，禁 Mermaid。
+- **无障碍**：颜色不得作为唯一通道；正文对比度 ≥4.5:1；深色模式使用独立 token。
+- **打印/Obsidian**：可选 `assets/review-visual.css`（复制到 `.obsidian/snippets/` 启用）；PDF 由用户从 Obsidian 人工导出。
+- **门禁**：`check_review_visual.py`（V1–V5 + V14）已接入 `quality_gate.py` 的 `review_visual` 检查；`<details>/<summary>` 已禁用，HTML 不是交付物。
+
+> 视觉规范是基线，不保证所有 Obsidian 主题/导出设置下外观完全一致；主题覆盖时以实际阅读视图与打印结果为准。
+
 ## 金标准（GoldenSet）
 
 HC-18 要求每批 15%–25%（目标 20%）为金标准引用题，而 `GoldenSet/` 只允许用户手动维护 —— **没有自备真题的用户会卡在这条门禁上**。因此提供显式降级路径：
@@ -274,7 +288,7 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
 ├── tools/
 │   └── preflight_publish.py # 投稿/发布前预检（frontmatter + 悬空链接）
 ├── smoketest/
-│   └── run_smoketest.py     # 冒烟测试（30 项断言，含规则命中与首次使用引导）
+│   └── run_smoketest.py     # 冒烟测试（32 项断言，含规则命中、首次使用引导与视觉门禁）
 └── skills/medagentwork/
     ├── SKILL.md             # 技能入口：定位与适用边界 + 安全说明 + 管线总览 + 门禁速查
     ├── references/          # 按需加载的角色手册与规则
@@ -287,6 +301,7 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
     │   ├── hard-constraints.md  #   HC/D/R 硬约束全集（HC-0 ~ HC-27 教训库）
     │   ├── quality-gate.md  #   HC-25 全流程质量基准与 R0–R4 阶段门禁
     │   ├── review-detail.md #   HC-26 复习资料详细度契约（九槽位/八块/阈值）
+    │   ├── review-visual-spec.md # 复习资料视觉/排版规范（token/字体/卡片/打印/Obsidian）
     │   ├── concept-layer.md #   HC-27 概念标注与概念层（节点/三类边/C1–C8/概念卡）
     │   ├── bpa-v1.md        #   教师重点蓝图版（BPA v1.0）生成规则
     │   └── prompts/         #   五个角色的完整提示词（路径已清洗为分享版）
@@ -298,14 +313,14 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
     │   ├── workflow_state.py / contract_check.py                    # 状态原子写与产物契约校验
     │   ├── bloom_sampler.py / fact_check.py / frequency_analyzer.py / kaoyan_picker.py  # 分布、事实、考点与金标准配额
     │   ├── check_keypoint_coverage.py / check_learning_value.py     # HC-20 重点覆盖 / HC-24 学习价值门禁
-    │   ├── check_review_detail.py / spaced_schedule.py              # HC-26 详细度门禁 / 间隔复习
+    │   ├── check_review_detail.py / check_review_visual.py / spaced_schedule.py  # HC-26 详细度 / 视觉排版门禁 / 间隔复习
     │   ├── check_source_concepts.py / check_concept_graph.py        # HC-27 生成期标注 / 概念图门禁
     │   ├── build_concept_graph.py / label_concepts.py / build_concept_cards.py  # 概念图/标注/概念卡
     │   ├── clean_produce_markup.py / verify_produce_rules.py / verify_page_numbers.py  # 产物形态与页码门禁
-    │   ├── qbank.py / render_qbank_html.py / render_review.py       # 题库数据层与 MD/HTML 渲染
+    │   ├── qbank.py / render_qbank_html.py / render_review.py（历史） # 题库数据层与 MD/HTML 渲染
     │   └── telemetry.py / regression_db.json                        # JSONL 事件日志 / 回归教训库
     ├── schemas/             # agent2/3/4 产物契约 + review_detail / kc 契约
-    ├── assets/              # 押题卷/成品页历史 HTML 模板、金标准模板、example_workspace 示例工作区
+    ├── assets/              # 押题卷/成品页历史 HTML 模板、金标准模板、review-visual.css、example_workspace 示例工作区
     └── pipeline.yaml        # 声明式管线配置（阶段/门禁/SLO/thresholds）
 ```
 
@@ -337,7 +352,7 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 
 见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.4**。
 
-- **未发布（本地）**：首次使用引导补全——新增 `doctor.py`、`init_workspace.py --example`、3 题可运行示例，统一安装路径/教师重点命名/`validate_options.py` 退出码口径，冒烟测试增至 30 项断言。
+- **未发布（本地）**：首次使用引导补全——新增 `doctor.py`、`init_workspace.py --example`、3 题可运行示例，统一安装路径/教师重点命名/`validate_options.py` 退出码口径；新增复习资料视觉规范、`review-visual.css` 与 `check_review_visual.py`，并解决 `<details>`/复习资料 HTML 的口径冲突。
 - **v2.4（2026-10-31）**：面向分发优化：新增独立工作区初始化、可移植 R0–R4 质量门禁、本校考试重点快速开始流程，并更新插件版本元数据。
 - **v2.3（2026-10-31）**：对齐原项目 10-23 ~ 10-31 的规则线——**HC-25 全流程质量基准**（R0–R4 阶段门禁 + `quality_policy.json` 阈值单一事实来源）、**HC-26 复习资料详细度**（九槽位 + 模块八块 + 自测对账，新增 `check_review_detail.py`）、**HC-27 概念层**（概念图 / 标注 / C1–C8 门禁 / Obsidian 概念卡，新增 5 个脚本）、**HC-22 真题双族配额**，并补齐此前被引用但未分发的 `check_learning_value.py`。
 - **v2.2（2026-09-21）**：移除全部插图相关功能。
@@ -372,6 +387,7 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 - **配置即事实来源**：阈值集中在 `pipeline.yaml` 与 `quality_policy.json`，运行时读取
 - **Bloom 独立重算**：不采信 LLM 自述的认知分布，从题库重算并交叉验证
 - **规则命中有测试**：冒烟测试断言 R1、R2、R5、R7、R8、R10–R13 与 JS1 真的被触发，而不是只验“脚本能跑”
+- **视觉规范即事实来源**：复习资料的 token、字号、Callout、表格与打印规则集中在 `references/review-visual-spec.md`，并由 `check_review_visual.py` 机械检查，不再散落在提示词与渲染器里
 
 ## 许可
 

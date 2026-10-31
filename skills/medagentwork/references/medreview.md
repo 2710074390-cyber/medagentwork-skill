@@ -9,7 +9,8 @@
 1. `references/hard-constraints.md` — 硬约束全集（**HC-20 教师重点原文锚定为不可违反项；HC-26 详细度契约为交付准入项**）
 2. `references/bpa-v1.md` — **BPA v1.0 教师重点蓝图版生成规则**（有教师重点输入时强制，优先级高于本文其余排版约定）
 3. `references/review-detail.md` — **HC-26 详细度契约**（九槽位 / 分级阈值 / 反注水规则 / 模块八块 / 课程安排八块 / 门禁口径）
-4. `references/prompts/Agent5_MedReview_Prompt.md` — 完整提示词。**D0 教师重点原文锚定（最高优先：逐条覆盖矩阵 + `📌 重点原文（第X条）：` 落点行 + 「原文锚定 > 原创性」裁决）**、**D6 详细度契约（九槽位 + 案例 + 反注水 + 模块八块）**、LIGHT 设计原则、五维深度体系（D1 第一性原理段 / D2 因果链 / D3 疾病谱系 / D4 鉴别决策树 / D5 跨模块概念地图）、三机械约束 + 导出兼容约束（E1-E3 / V14 自检）、**V17 教师重点覆盖自检 + V18 详细度自检**全部生效。
+4. `references/review-visual-spec.md` — **视觉/排版规范**（设计 token、字体、卡片/表格/封面、打印、Obsidian 基线、V1–V14；与本文冲突时以该文件为准）
+5. `references/prompts/Agent5_MedReview_Prompt.md` — 完整提示词。**D0 教师重点原文锚定（最高优先：逐条覆盖矩阵 + `📌 重点原文（第X条）：` 落点行 + 「原文锚定 > 原创性」裁决）**、**D6 详细度契约（九槽位 + 案例 + 反注水 + 模块八块）**、LIGHT 设计原则、五维深度体系（D1 第一性原理段 / D2 因果链 / D3 疾病谱系 / D4 鉴别决策树 / D5 跨模块概念地图）、三机械约束 + 导出兼容约束（E1-E3 / V14 自检）、**V17 教师重点覆盖自检 + V18 详细度自检**全部生效。
 
 ## 路由判定（先做，再动笔）
 
@@ -29,7 +30,7 @@ BPA 版交付路径：`Obsidian产物/教师重点蓝图版/{科目}_教师重�
 3. **三机械约束（不可回退）**：
    - D1 段后必有 callout/展开区；全文 callout ≥ 模块数×4、展开区（`#### 🔬 展开：`）≥ 模块数×2
    - 对比表与 D2 因果链互补，不可互相替代
-   - **导出兼容（E1-E3）**：加粗一律 `<b>…</b>`、斜体 `<i>…</i>`（禁用 `**`/`*`）；禁用 `<details>/<summary>`（站端渲染用 `<details open>` 由渲染器处理）；交付前 V14 自检（`**` 计数=0、`<details>` 计数=0、`<b>`/`</b>` 配对）
+   - **导出兼容（E1-E3）**：加粗一律 `<b>…</b>`、斜体 `<i>…</i>`（禁用 `**`/`*`）；禁用 `<details>/<summary>`，展开区一律 `#### 🔬 展开：`；交付前 V14 自检（`**` 计数=0、`<details>` 计数=0、`<b>`/`</b>` 配对）
 4. **附录必含**：
    - 教材知识点页码索引（**真实页码，禁止占位符**，如全模块同一页码即视为占位，HC-10）
    - 术语同意异名对照表（HC-9）
@@ -40,5 +41,6 @@ BPA 版交付路径：`Obsidian产物/教师重点蓝图版/{科目}_教师重�
    python {SKILL}/scripts/check_review_detail.py --md <主复习资料 MD> --mode auto --profile release_teacher_keypoint
    ```
    FAIL 时按报告里的 `cards[].missing_slots` / `modules[].missing_blocks` 逐项补写后重跑。**先覆盖、再展开、最后自测**——不得用概括替代原文，不得用空话凑字数。
+   **视觉/排版**：再跑 `python {SKILL}/scripts/check_review_visual.py --md <主复习资料 MD> --profile release_teacher_keypoint`；三色覆盖、Callout 密度、视觉呼吸、展开区、表格、导出兼容任一 FAIL → 按 `references/review-visual-spec.md` 返工。
 7. **单一文件交付**：模块可以分片生成（`中间产物/{batchID}/`），但交付目录里**只能有一份合并后的 MD**，附录随合并写回；详细度与 V14 自检只对合并后的文件运行。
-8. **完成后报告**：文件路径 + 行数/模块数 + 三机械约束达标情况（callout/展开区计数）+ V14 导出兼容自检结果 + **V17 教师重点覆盖（覆盖矩阵未覆盖行数=0 + `check_keypoint_coverage.py` 结果；无教师重点输入则 SKIPPED）** + **V18 详细度（`check_review_detail.py` 总分/卡片达标率/自测答案覆盖/模块八块）**。
+8. **完成后报告**：文件路径 + 行数/模块数 + 三机械约束达标情况（callout/展开区计数）+ V14 导出兼容自检结果 + **视觉门禁（`check_review_visual.py` 结论/三色覆盖/Callout/展开区/表格）** + **V17 教师重点覆盖（覆盖矩阵未覆盖行数=0 + `check_keypoint_coverage.py` 结果；无教师重点输入则 SKIPPED）** + **V18 详细度（`check_review_detail.py` 总分/卡片达标率/自测答案覆盖/模块八块）**。

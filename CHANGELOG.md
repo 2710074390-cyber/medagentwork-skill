@@ -16,6 +16,10 @@
 - 新增 `assets/example_workspace/`：3 道已通过 R1–R13 的示例题 + 示例教师重点 + 教材摘录；`examples/minimal/` 同步为同一份可运行示例。
 - `SKILL.md` 新增「§2.1 首次使用：Agent 必须执行的 5 步」，把环境自检、输入确认、初始化、金标准模式、批次回显变成强制引导流程。
 - 冒烟测试新增首次使用链路断言（`--example` + `doctor.py` + 示例 validate），并新增 FAIL/WARN 退出码断言。
+- 新增 `references/review-visual-spec.md`：复习资料视觉/排版单一事实来源，含设计 token、字体字号、卡片/表格/封面、颜色与无障碍、打印/PDF、Obsidian 基线、V1–V14 映射。
+- 新增 `assets/review-visual.css`：可选 Obsidian CSS 片段/打印基线（单栏 760px、正文 15px/1.8、Callout、表格、A4 分页）。
+- 新增 `scripts/check_review_visual.py`：机械检查 V1 三色覆盖、V2 Callout 密度/类型、V3 视觉呼吸、V4 展开区/禁用 `<details>`、V5 表格、V14 导出兼容；支持 `--advisory`。
+- `quality_policy.json` 升级到 `1.3.0`，三个 profile 增加 `review_visual` 与 `visual_*` 阈值；`quality_gate.py` 接入 `r2.review_visual`。
 
 ### 修复
 
@@ -23,13 +27,17 @@
 - README / examples 的安装路径统一为 `{SKILL}/scripts/...`，明确 `{SKILL}` = 包含 `SKILL.md` 的安装目录，修正手动复制/zip 导入后多套一层 `skills/medagentwork` 的路径错误。
 - 教师重点命名统一为 `<科目>_教师重点_<学校或日期>.md`；`check_keypoint_coverage.py` 明确提示 `--keypoints` 按字面路径读取、不展开 `*`，并同步 SKILL/runbook/concept-layer/review-detail 命令。
 - `SKILL.md` 对仓库根 `README.md` / `requirements-optional.txt` 的引用改为可选说明，只安装 `skills/medagentwork/` 时不再形成死链。
+- **复习资料 `<details>` 口径统一**：SKILL.md / hard-constraints / medreview / Agent5 prompt 全部改为**禁用 `<details>/<summary>`**，展开区统一 `#### 🔬 展开：`；`check_review_visual.py` 对出现 `<details>` 直接 FAIL。
+- **复习资料 HTML 口径统一**：明确 HTML 不是交付物，`render_review.py` 仅历史遗留，不参与管线/门禁/验收；Agent5 prompt 删除“HTML 由渲染器生成”的表述。
+- `quality-gate.md` 补充 R2/R3 的 `check_review_visual.py` 映射，并修正“编排器不分发”的旧说明（分发版 `quality_gate.py` 已包含）。
 
 ### 验证
 
-- 冒烟测试：**30 passed / 0 failed**（含 FAIL/WARN 退出码、`--example`、`doctor.py` 断言）。
+- 冒烟测试：**32 passed / 0 failed**（含 FAIL/WARN 退出码、`--example`、`doctor.py`、视觉门禁断言）。
 - `python -m compileall -q skills/medagentwork/scripts smoketest` 通过。
 - `python tools/preflight_publish.py --strict`：**致命=0 警告=0**。
 - 仅复制 `skills/medagentwork/` 到临时目录后，`init_workspace.py --example` → `doctor.py` → `validate_options.py` → `qbank.py export-md` 全链路通过。
+- 视觉门禁：合规样例 PASS；含 `<details>` / Mermaid / `**` 的样例 FAIL；`--advisory` 降级为 WARN 生效。
 
 ## [v2.4] — 2026-10-31
 

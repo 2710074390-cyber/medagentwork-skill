@@ -186,10 +186,10 @@
 |------|---------|-----|
 | 押题卷 | **仅 MD**（`押题卷_{科目}_{N}题.md`；题型归一为 **单选题/多选题/判断题**，供刷题软件导入）。**HTML 交付已下线**（`assets/quiz_template.html` 仅历史遗留，不再产出） | **一律人工上传**，管线/脚本禁止生成 |
 | 题库 | **MD + HTML**（MD：ALL_questions_FIXED.md；HTML：`render_qbank_html.py`） | **一律人工上传** |
-| 复习资料 | **仅 MD**（MedReview；有教师重点时走 BPA v1.0）。**HTML 交付已下线**（`render_review.py` 仅历史遗留，不再产出） | **一律人工上传**，管线/脚本禁止生成 |
+| 复习资料 | **仅 MD**（MedReview；有教师重点时走 BPA v1.0）。**HTML 交付已下线**（`render_review.py` 仅历史遗留，不参与交付与门禁验收） | **一律人工上传**，管线/脚本禁止生成 |
 
 - 禁区：交付目录内不得产出 `.pdf`；禁止任何脚本调用 weasyprint/pdfkit 等 PDF 工具链。
-- 复习资料 MD 仅使用渲染器子集：h1-h6/表格/粗斜体/代码块/**Obsidian Callout（> [!TYPE]）**/`<details open>`/列表/hr；**禁 Mermaid**（用 ASCII 图）、禁其它 HTML 标签、禁 YAML front matter
+- 复习资料 MD 仅使用 Obsidian/PDF 兼容子集：h1-h6/表格/粗斜体/代码块/**Obsidian Callout（> [!TYPE]）**/`#### 🔬 展开`/列表/hr；**禁用 `<details>/<summary>`、Mermaid（用 ASCII 图）、其它 HTML 标签、YAML front matter**。视觉/排版口径以 `references/review-visual-spec.md` 为准。
 - 交付前清理流程残留（`📦 复习资料批次 X/Y`、`✅ 批次完成`、`⏭️ 下一批`、自检报告块）—— 用 `clean_produce_markup.py`
 - **押题卷 MD**：题目标题只允许 `### N. [单选题｜多选题｜判断题｜Bloom] qid` 形态，题型标签仅取 **单选题/多选题/判断题** 三值；必须含 `**答案：X**` 行；标题与元信息行**禁止**出现「统一模板」「TEST」、内部版本号
 - 门禁：产物进入交付目录前必须 `python {SKILL}/scripts/verify_produce_rules.py`（FAIL==0）
