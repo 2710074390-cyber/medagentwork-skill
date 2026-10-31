@@ -30,18 +30,24 @@ def main():
         parser.print_help()
         sys.exit(2)
 
-    had_issues = False
+    summary = None
 
     if args.file:
         summary = validate_file(args.file, mode=args.mode, verbose=args.verbose)
-        if summary and (summary['fail'] > 0 or summary['warn'] > 0):
-            had_issues = True
     elif args.batch:
         summary = validate_batch(args.batch, mode=args.mode, verbose=args.verbose)
-        if summary and (summary['fail'] > 0 or summary['warn'] > 0):
-            had_issues = True
 
-    sys.exit(1 if had_issues else 0)
+    # 门禁口径：FAIL>0 才阻断；WARN 只记录，不阻断交付（与 README/runbook 的
+    # “FAIL==0 才放行”一致）。退出码 1 仅代表存在 FAIL，避免把 WARN 误判为阻断；
+    # 文件不存在/未解析到题目属于脚本/数据错误，退出 2。
+    if summary is None:
+        sys.exit(2)
+    if summary['fail'] > 0:
+        print("\n提示: 存在 FAIL 项，退出码 1；修复后重跑。")
+        sys.exit(1)
+    if summary['warn'] > 0:
+        print("\n提示: 仅存在 WARN，按门禁口径不阻断放行（退出码 0）。")
+    sys.exit(0)
 
 
 if __name__ == '__main__':

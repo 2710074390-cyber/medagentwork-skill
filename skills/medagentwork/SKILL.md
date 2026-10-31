@@ -33,7 +33,7 @@ tools: [claude, cursor, gemini, codex, opencode, kiro, trae]
 | 作为「LLM + 确定性门禁」工程范式的参考实现 | 无自有素材/金标准（本 skill 不含真题、教材） |
 | 有自备真题/权威题库（`GoldenSet/`）的用户 | 需要单题即时作答（流水线开销远大于收益） |
 
-**三条最容易被高估的局限**（完整清单见仓库 `README.md` 的「局限性」一节）：
+**三条最容易被高估的局限**（完整清单见随仓库分发的 `README.md`「局限性」一节；只安装 `skills/medagentwork/` 时见本文件 §7.1）：
 
 1. **门禁只保证形式质量，不保证临床正确性** —— 过了门禁 ≠ 题目正确（详见 §7.1）。
 2. **只有 Bloom 一维做了独立重算** —— `D20` 等仍读 LLM 自述，门禁只保证「字段存在且非 0」。
@@ -71,7 +71,7 @@ cd <你的工作区>
 python {SKILL}/scripts/validate_options.py --batch batch001
 ```
 
-依赖：核心管线（validate/gate/state/qbank/fact_check/bloom/kaoyan/render）**零依赖**；可选增强（PyYAML / jsonschema / jieba）见仓库根目录 `requirements-optional.txt`，全部缺失也能完整跑通。
+依赖：核心管线（validate/gate/state/qbank/fact_check/bloom/kaoyan/render）**零依赖**；可选增强为 PyYAML / jsonschema / jieba（完整清单见随仓库分发的 `requirements-optional.txt`），**全部缺失也能完整跑通**。
 
 **阈值调参**：所有可调阈值（选项长度上限、Bloom 偏差上限、R8 豁免词表等）集中在 `pipeline.yaml` 的 `thresholds:` 段，由 `scripts/pipeline_config.py` 在运行时读取（缺失回退内置默认）。改配置即全局生效，**不需要改 Python 代码**。
 
@@ -83,7 +83,24 @@ python {SKILL}/scripts/validate_options.py --batch batch001
 python {SKILL}/scripts/init_workspace.py <工作区> --subject <科目>
 ```
 
-它只创建工作区目录、`workflow_state.json` 和输入素材说明，不会修改 skill 包本身。把**你自己学校的考试重点**放入 `输入素材/<科目>/`；更换学校时只需更换输入重点，题库和资料生成管线不需要改动。
+想先用内置 3 题示例跑通校验/导出（不调用 LLM）：
+
+```bash
+python {SKILL}/scripts/init_workspace.py <工作区> --subject <科目> --example
+python {SKILL}/scripts/doctor.py --workspace <工作区>
+```
+
+`init_workspace.py` 只创建工作区目录、`workflow_state.json` 和输入素材说明，不会修改 skill 包本身。`--example` 额外把 `assets/example_workspace/` 复制到 `输入素材/<科目>/`（未给 `--subject` 时用 `示例科目`），登记 `batch001` 并生成 `示例运行说明.md`。
+
+**输入素材命名约定**：
+
+| 文件 | 建议命名 | 说明 |
+|---|---|---|
+| 教师重点 | `输入素材/<科目>/<科目>_教师重点_<学校或日期>.md` | 覆盖门禁按实际文件名读取，脚本不会展开 `*` 通配符 |
+| 教材/笔记 | `输入素材/<科目>/教材摘录_<章节>.md` | 任意文件名均可 |
+| 课程安排 | `输入素材/<科目>/课程安排.md` | 可选 |
+
+把**你自己学校的考试重点**放入 `输入素材/<科目>/`；更换学校时只需更换输入重点，题库和资料生成管线不需要改动。
 
 用户首次使用时，工作区目录包括：
 
@@ -97,11 +114,19 @@ GoldenSet/           # 金标准（仅用户手动维护，Agent 禁写）
 archive/             # 签收归档
 ```
 
-初始化状态文件（在 Python 中调用，或参考 `references/runbook.md`）：
+初始化状态由 `init_workspace.py` 自动完成；需要复核时运行 `python {SKILL}/scripts/doctor.py --workspace <工作区>`。
 
-```bash
-cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scripts'); import workflow_state as ws; ws.save_state({'schema_version': 2})"
-```
+## 2.1 首次使用：Agent 必须执行的 5 步
+
+当用户第一次在本工作区使用本技能，或用户表达“下载/装好后怎么开始”时，Agent 必须按顺序执行，**不得直接进入 MedGen**：
+
+1. **环境自检**：运行 `python {SKILL}/scripts/doctor.py --workspace <工作区>`。有 `[ERROR]` 先解决；`[WARN]` 向用户说明（尤其是“无金标准”）。
+2. **确认输入**：询问科目、教师重点文件、教材/笔记、目标题数。用户没有资料时，先问“是否用内置示例跑通流程”；不要替用户编造资料。
+3. **初始化**：`python {SKILL}/scripts/init_workspace.py <工作区> --subject <科目>`；要示例加 `--example`。已初始化的工作区不要重复覆盖，先跑 doctor。
+4. **确认金标准模式**：`GoldenSet/structured/` 有 JSON → 正常配额；没有 → 明确告知用户本批次将使用 `--golden-absent` 降级，**没有金标准兜底**，答案正确性依赖 MedQC + 人工签收。
+5. **回显并登记批次**：回显科目/目标题数/模块划分/Bloom 目标与金标准模式，用户确认后按 §4 登记批次；未确认前不生成题目。
+
+> 只安装 `skills/medagentwork/` 时，仓库根目录的 `README.md` / `requirements-optional.txt` 可能不在安装目录；本文件 §2、§2.1、§5 已包含首次使用所需的全部命令。
 
 ## 3. 管线总览
 
@@ -150,10 +175,13 @@ cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scrip
 ## 5. 门禁命令速查
 
 ```bash
-cd <你的工作区>
+cd <工作区>
+
+# 首次使用/环境自检（Python 版本、工作区、输入素材、GoldenSet、可选依赖）
+python {SKILL}/scripts/doctor.py --workspace <工作区>
 
 # 产出门禁（每个题库文件，MedGen 交付前自检 + GATE-A2）
-python {SKILL}/scripts/validate_options.py --batch {batchID} --mode full   # FAIL==0 才放行
+python {SKILL}/scripts/validate_options.py --batch {batchID} --mode full   # FAIL==0 才放行；仅 WARN 退出 0（不阻断）；文件/数据错误退出 2
 
 # 阶段门禁（分发版 R0–R4；报告写入当前工作区 reports/gate/）
 python {SKILL}/scripts/quality_gate.py --stage r0 --batch {batchID} --profile pilot --mode advisory
@@ -182,7 +210,8 @@ python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_
 python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json --golden-absent
 
 # 教师重点原文锚定（HC-20 / D0 · 有教师重点或复习大纲输入的批次，门禁A5 与终审前各跑一次）
-python {SKILL}/scripts/check_keypoint_coverage.py --keypoints 输入素材/{科目}/{科目}_教师重点_*.md --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md   # 数值/时间窗类硬事实缺失或重点条目缺落点 → exit 1（返工）；无教师重点输入 → SKIPPED（退出码 2，不视为通过）
+# --keypoints 按实际文件名传入，脚本不展开 * 通配符
+python {SKILL}/scripts/check_keypoint_coverage.py --keypoints "输入素材/{科目}/{科目}_教师重点_<学校或日期>.md" --md "复习资料/{科目}教学计划版/{科目}_主复习资料.md"   # 数值/时间窗类硬事实缺失或重点条目缺落点 → exit 1（返工）；无教师重点输入 → SKIPPED（退出码 2，不视为通过）
 
 # 复习资料详细度（HC-26 · 正式交付必须 PASS；模块版用 --mode module，课程安排版用 --mode course_schedule）
 python {SKILL}/scripts/check_review_detail.py --md 复习资料/{科目}教师重点版/{科目}教师重点版_主复习资料.md --mode auto --profile release_teacher_keypoint --json-out reports/validate/review_detail_{科目}.json --md-out reports/validate/review_detail_{科目}.md

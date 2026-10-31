@@ -5,6 +5,32 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — 2026-10-31
+
+> 面向首次使用引导：装完即可自检、用内置 3 题示例跑通校验/导出，并把路径、命名与退出码口径统一到可执行状态。
+
+### 新增
+
+- 新增 `scripts/doctor.py`：检查 Python 版本、skill 完整性、工作区结构、`workflow_state.json`、输入素材命名、GoldenSet 与可选依赖，并输出下一步提示词。
+- `init_workspace.py` 新增 `--example`：把内置 3 题示例复制到目标科目目录（`--subject`，缺省为 `示例科目`）、登记 `batch001`、生成 `示例运行说明.md`；已存在文件不覆盖。
+- 新增 `assets/example_workspace/`：3 道已通过 R1–R13 的示例题 + 示例教师重点 + 教材摘录；`examples/minimal/` 同步为同一份可运行示例。
+- `SKILL.md` 新增「§2.1 首次使用：Agent 必须执行的 5 步」，把环境自检、输入确认、初始化、金标准模式、批次回显变成强制引导流程。
+- 冒烟测试新增首次使用链路断言（`--example` + `doctor.py` + 示例 validate），并新增 FAIL/WARN 退出码断言。
+
+### 修复
+
+- `validate_options.py` 退出码口径与文档统一：**仅 FAIL>0 时退出 1；仅 WARN 时退出 0；文件缺失/未解析到题目退出 2**（此前 WARN>0 也退出 1，容易被误判为阻断）。
+- README / examples 的安装路径统一为 `{SKILL}/scripts/...`，明确 `{SKILL}` = 包含 `SKILL.md` 的安装目录，修正手动复制/zip 导入后多套一层 `skills/medagentwork` 的路径错误。
+- 教师重点命名统一为 `<科目>_教师重点_<学校或日期>.md`；`check_keypoint_coverage.py` 明确提示 `--keypoints` 按字面路径读取、不展开 `*`，并同步 SKILL/runbook/concept-layer/review-detail 命令。
+- `SKILL.md` 对仓库根 `README.md` / `requirements-optional.txt` 的引用改为可选说明，只安装 `skills/medagentwork/` 时不再形成死链。
+
+### 验证
+
+- 冒烟测试：**30 passed / 0 failed**（含 FAIL/WARN 退出码、`--example`、`doctor.py` 断言）。
+- `python -m compileall -q skills/medagentwork/scripts smoketest` 通过。
+- `python tools/preflight_publish.py --strict`：**致命=0 警告=0**。
+- 仅复制 `skills/medagentwork/` 到临时目录后，`init_workspace.py --example` → `doctor.py` → `validate_options.py` → `qbank.py export-md` 全链路通过。
+
 ## [v2.4] — 2026-10-31
 
 > 面向分发优化：下载后可在独立工作区初始化，使用者可以直接放入自己学校的考试重点和教材；补齐可移植的 R0–R4 质量门禁入口，并移除仅适用于原项目的发布检查依赖。
@@ -355,7 +381,7 @@
 
 ---
 
-[Unreleased]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v2.2...HEAD
+[Unreleased]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v2.4...HEAD
 [v2.2]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v2.1...v2.2
 [v2.1]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v1.0...v2.1
 [v1.0]: https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v1.0

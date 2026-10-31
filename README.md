@@ -1,10 +1,10 @@
 # MedAgentWork Skill — 医学题库生产管线
 
-把教材/笔记变成高质量题库与复习手册的 **AI Agent 技能**：五阶段工作流（出题 → 质检 → 修复 → 成册），每个阶段转换由确定性 Python 门禁强制校验，配 Bloom 认知分层配额、金标准比对、NBME 反套路检测与回归教训库。
+把教材/笔记变成高质量题库与复习手册的 **AI Agent 技能**：五角色工作流（编排 → 出题 → 质检 → 修复 → 成册），每个阶段转换由确定性 Python 门禁强制校验，并按 HC-25 的 R0–R4 阶段质量基准推进；配 Bloom 认知分层配额、金标准比对、NBME 反套路检测与回归教训库。
 
 **核心管线零第三方依赖（纯 Python 标准库），装好即用。**
 
-由 [MedAgentWork](https://med-review-site.pages.dev) 项目转化而来，保留了原版全部方法论资产：HC-0~HC-18 硬约束（每条背后是一次真实事故）、D1-D21 质检维度、R1-R13 机械化校验规则、五个角色的完整提示词。
+由 [MedAgentWork](https://med-review-site.pages.dev) 项目转化而来，保留了原版全部方法论资产：HC-0~HC-27 硬约束（每条背后是一次真实事故）、D1-D21 质检维度、R1–R13 + B1/JS1/S3 校验引擎与 R14–R19 学习价值检查、五个角色的完整提示词。
 
 > **需要插图阶段（图谱复用 / AI 底图 / 程序化中文标注 / WebP 压缩）？**
 > 插图管线自 **v2.2 起整体移除**。如需完整插图能力（三通道路由、`annotate_image` 标注、
@@ -16,9 +16,12 @@
 **一句话定位**：这不是一个"医学问答工具"，而是一条**医学题库生产的工业流水线**——用 CI/CD 的工程范式（Pipeline as Code + Quality Gate）治理 LLM 出题的不确定性。
 
 ```
-教材/笔记 → MedGen 出题 → [GATE-A2] → MedQC 质检 → [GATE-A3]
-        → MedFix 修复 → [GATE-A4] → MedReview 成册 → [终审] → 用户签收 → 归档
+教材/笔记 → 登记批次 → MedGen 出题 → [GATE-A2] → MedQC 质检 → [GATE-A3]
+        → MedFix 修复 → [GATE-A4] → MedReview 成册 → [GATE-A5]
+        → 终审门禁 → 用户签收 → 归档
 ```
+
+阶段推进同时遵循 HC-25 的 **R0 需求评审 → R1 开发实现 → R2 测试验证 → R3 发布上线 → R4 运行复盘** 质量基准。
 
 **核心主张：LLM 自检不可信，一切质量判定交给确定性脚本。** 五个角色接力，每次阶段转换必须通过 Python 门禁；门禁 `BLOCKED` 即 halt 并回退对应角色，不可跳过（Orchestrator-as-Enforcer，HC-12）。
 
@@ -44,7 +47,7 @@
 | 医学生 / 规培生的**系统化复习资料生产** | 教材 → 分层手册 + 配套题库，一条链路走完 |
 | 教研团队的**批量题库建设** | 需要"可追溯、可复现、可审计"时，门禁 + 追溯日志正好对上 |
 | 作为**"LLM + 确定性门禁"工程范式的参考实现** | 约束来源可追溯、fail-closed 设计、教训入库机制，可直接借鉴到其他领域 |
-| **有自备真题 / 权威题库（GoldenSet）**的用户 | 金标准机制（20% 配额 + 引用题答案 100% 比对）才能真正发挥价值 |
+| **有自备真题 / 权威题库（GoldenSet）**的用户 | 金标准机制（目标 20%、合格带 15%–25% 的配额 + 引用题答案 100% 比对）才能真正发挥价值 |
 
 ### 不适配
 
@@ -65,15 +68,15 @@
 > **过了门禁 ≠ 题目正确。门禁是"防呆"，不是"防错"。**
 > 它挡得住格式崩坏与自述造假，挡不住内容本身是错的。
 
-### 2. 只有 Bloom 一维做了独立重算
+### 2. GATE-A3 只有 Bloom 一维做了独立重算
 
 `GATE-A3` 的 **D20 分数**读自 `A3_质检报告.json`，仍属 **LLM 自述** —— 门禁只保证「字段存在且非 0」（fail-closed），不保证分数真实。
 
-v2.1 已对 **Bloom 分布**加固（用题库 JSON 机械重算并与自述值交叉验证，偏差 > 5% 即 BLOCKED），但**仅此一维**。其余维度仍是"读 LLM 自述"。
+自 v2.1 起已对 **Bloom 分布**加固（用题库 JSON 机械重算并与自述值交叉验证，偏差 > 5% 即 BLOCKED），但 GATE-A3 的其余维度仍未做独立重算，仍是"读 LLM 自述"。
 
 ### 3. 金标准是硬门槛；无金标准时该机制价值归零
 
-`HC-18` 要求每批 **15%–20%** 为金标准引用题，而 `GoldenSet/` 只允许用户手动维护。没有自备真题的用户只能走 `--golden-absent` 降级 —— **该批次失去金标准兜底，答案正确性完全依赖 MedQC + 人工签收**。
+`HC-18` 要求每批 **15%–25%（目标 20%）** 为金标准引用题，而 `GoldenSet/` 只允许用户手动维护。没有自备真题的用户只能走 `--golden-absent` 降级 —— **该批次失去金标准兜底，答案正确性完全依赖 MedQC + 人工签收**。
 
 ### 4. 不含任何版权数据
 
@@ -94,12 +97,12 @@ v2.1 已对 **Bloom 分布**加固（用题库 JSON 机械重算并与自述值�
 ### 7. 环境要求
 
 - 需宿主支持 **Agent Skills（`SKILL.md`）规范**；已在 TRAE 与 Claude Code 验证
-- **所有脚本必须在工作区目录下运行**（脚本按 `cwd` 定位 `中间产物/`、`workflow_state.json`）
+- **除 `init_workspace.py` 这类初始化脚本外，门禁/渲染脚本必须在工作区目录下运行**（脚本按 `cwd` 定位 `中间产物/`、`workflow_state.json`）
 - 核心管线需 **Python 3.10+**；可选依赖见 `requirements-optional.txt`
 
 ## 安装
 
-技能采用通用 Agent Skills 格式（SKILL.md + scripts/ + references/），支持 40+ 兼容客户端。
+技能采用通用 Agent Skills 格式（SKILL.md + scripts/ + references/ + schemas/ + assets/ + pipeline.yaml），支持 40+ 兼容客户端。
 
 **方式一：Claude Code 插件市场**（一行命令，自动获取更新）：
 
@@ -136,7 +139,9 @@ TRAE 也支持 **导入 .zip**（设置 → 技能与命令 → 创建 → 上�
 
 **其他兼容环境**：任何支持 Agent Skills（SKILL.md）规范的宿主均可，将 `skills/medagentwork/` 放入对应技能目录即可。
 
-**安装自检**（可选）：`python smoketest/run_smoketest.py` 会在临时工作区跑通「批次登记 → 坏题阻断 → 修复 → FAIL==0 放行 → MD 导出 → 规则命中断言」全链路（23 项断言），用于确认脚本在你机器上可用。
+**安装自检**（可选）：`python smoketest/run_smoketest.py` 会在临时工作区跑通「批次登记 → 坏题阻断 → 修复 → FAIL==0 放行 → MD 导出 → 规则命中断言 → 示例工作区引导」全链路（30 项断言），用于确认脚本在你机器上可用。如果只安装了 `skills/medagentwork/`，改用 `python {SKILL}/scripts/doctor.py --workspace <工作区>`。
+
+> 下文用 `{SKILL}` 表示技能安装目录（即包含 `SKILL.md` 的目录）。手动复制到 `.trae/skills/medagentwork/` 后，`{SKILL}` 就是该目录，不要再套一层 `skills/medagentwork`。
 
 > **前置条件：数据需自备**
 > 本 skill 只含**机制**不含**数据**（无真题、无教材）。金标准由你手动维护；无金标准时走显式降级模式（见「金标准」一节）。
@@ -148,13 +153,22 @@ TRAE 也支持 **导入 .zip**（设置 → 技能与命令 → 创建 → 上�
 下载或安装 skill 后，先在一个**单独的工作区目录**运行：
 
 ```bash
-python <技能目录>/skills/medagentwork/scripts/init_workspace.py ./我的医学复习 --subject 内科学
+python {SKILL}/scripts/init_workspace.py ./我的医学复习 --subject 内科学
 ```
+
+想先用内置 3 题示例跑通校验/导出（不调用 LLM）：
+
+```bash
+python {SKILL}/scripts/init_workspace.py ./我的医学复习 --subject 内科学 --example
+python {SKILL}/scripts/doctor.py --workspace ./我的医学复习
+```
+
+`doctor.py` 会检查 Python 版本、工作区结构、输入素材、GoldenSet 与可选依赖，并给出下一步提示。首次使用的完整 Agent 流程见 `SKILL.md` 的「§2.1 首次使用：Agent 必须执行的 5 步」。
 
 如果只想初始化当前目录：
 
 ```bash
-python <技能目录>/skills/medagentwork/scripts/init_workspace.py --subject 内科学
+python {SKILL}/scripts/init_workspace.py --subject 内科学
 ```
 
 ### 2. 放入你自己学校的资料
@@ -165,29 +179,31 @@ python <技能目录>/skills/medagentwork/scripts/init_workspace.py --subject �
 我的医学复习/
 └── 输入素材/
     └── 内科学/
-        ├── 本校考试重点.md
+        ├── 内科学_教师重点_本校.md
         ├── 课程安排.md
-        └── 教材摘录.md
+        └── 教材摘录_第1章.md
 ```
+
+教师重点建议使用 `<科目>_教师重点_<学校或日期>.md` 命名。**门禁命令按实际文件名读取，脚本不会展开 `*` 通配符**；多份重点请先合并为一个文件，或分别传入。
 
 **考试重点应使用你自己学校的版本。**学校不同，重点范围和命题习惯可能不同；不需要改 Python 脚本或重做管线，换输入素材后照常运行即可。
 
 ### 3. 让 Agent 开始批次
 
 ```text
-加载 medagentwork 技能。使用输入素材/内科学/中的本校考试重点和教材，开始新批次：内科学+本校考试重点，目标 50 题。
+加载 medagentwork 技能。使用输入素材/内科学/内科学_教师重点_本校.md 和教材摘录，开始新批次：内科学，目标 50 题。
 ```
 
-也可以先看 `examples/minimal/` 的无版权示例目录。
+也可以先用内置示例体验：`init_workspace.py --example` 已包含 3 道题，可直接跑 `validate_options.py` 与 `qbank.py export-md`；`examples/minimal/` 是同一份示例的只读镜像。
 
-Agent 会按“出题 → 质检 → 修复 → 成册”执行，并在阶段门禁失败时停止返工。
+Agent 会按“编排 → 出题 → 质检 → 修复 → 成册”的五角色工作流执行，并在阶段门禁失败时停止返工。
 
 ## 依赖
 
 | 组件 | 依赖 | 说明 |
 |---|---|---|
-| 核心管线（validate / gate_check / workflow_state / qbank / fact_check / bloom_sampler / kaoyan_picker / render_qbank_html / render_review / contract_check / pipeline_config） | **无**（纯标准库） | Python 3.10+ |
-| schema 契约校验 | jsonschema | 可选，缺失时自动跳过 |
+| 核心管线（`scripts/` 下全部脚本：validate 引擎、gate_check、quality_gate、workflow_state、qbank、fact_check、bloom_sampler、kaoyan_picker、contract_check、pipeline_config、quality_policy、init_workspace、doctor，以及 `check_*` / `verify_*` / `build_*` / `render_*` 等门禁与辅助脚本） | **无**（纯标准库） | Python 3.10+ |
+| schema 契约校验（`contract_check.py`） | jsonschema | 可选；缺失时 `contract_check.py` 无法完成校验并报错，`ingest.py` 自动跳过 |
 | R10/R11 分词精度增强 | jieba | 可选，缺失时回退 n-gram 滑窗 |
 | 完整 YAML 解析 | PyYAML | 可选，缺失时回退内置最小解析器 |
 
@@ -199,7 +215,10 @@ pip install -r requirements-optional.txt
 
 ## 配置与阈值
 
-所有可调阈值集中在 `skills/medagentwork/pipeline.yaml` 的 `thresholds:` 段，由 `scripts/pipeline_config.py` 在**运行时**读取（零依赖；未安装 PyYAML 时用内置最小解析器；读取失败回退内置默认值）：
+阈值有两处单一事实来源：
+
+- **题库出题/校验阈值**：`skills/medagentwork/pipeline.yaml` 的 `thresholds:` 段，由 `scripts/pipeline_config.py` 在**运行时**读取（零依赖；未安装 PyYAML 时用内置最小解析器；读取失败回退内置默认值）。
+- **HC-25 的 R0–R4 阶段质量基准**：`scripts/quality_policy.json` 的 `profiles` 段（pilot / release_teacher_keypoint 等），由 `scripts/quality_policy.py` 与 `scripts/quality_gate.py` 读取。
 
 ```yaml
 thresholds:
@@ -213,7 +232,7 @@ thresholds:
   r8_legit_terms_tcm: [...]
 ```
 
-改配置即全局生效，**不需要改 Python 代码**。可用 `python skills/medagentwork/scripts/pipeline_config.py` 核对当前生效值。
+改配置即全局生效，**不需要改 Python 代码**。可用 `python {SKILL}/scripts/pipeline_config.py` 核对题库阈值，用 `python {SKILL}/scripts/quality_policy.py --show pilot` 核对阶段基准（`--validate` 校验策略文件完整性）。
 
 ## 门禁保证什么、不保证什么
 
@@ -225,12 +244,12 @@ thresholds:
 | **不保证** | ❌ 不判断临床正确性、不判断解析是否成立 | ❌ 不保证机械规则全过 |
 
 - `GATE-A3` 的 **D20 分数**读自质检报告，属 LLM 自述 —— 门禁只保证「字段存在且非 0」（fail-closed）。
-- `GATE-A3` 的 **Bloom 分布**已加固：门禁用题库 JSON **独立重算**并与自述值交叉验证，偏差 > 5% 即 BLOCKED。**只有 Bloom 这一维做了重算。**
+- `GATE-A3` 的 **Bloom 分布**已加固：门禁用题库 JSON **独立重算**并与自述值交叉验证，偏差 > 5% 即 BLOCKED。**GATE-A3 内只有 Bloom 这一维做了重算。**
 - **答案正确性的最终责任人是人工签收**；金标准比对只覆盖有真题的那部分配额。
 
 ## 金标准（GoldenSet）
 
-HC-18 要求每批 15%–20% 为金标准引用题，而 `GoldenSet/` 只允许用户手动维护 —— **没有自备真题的用户会卡在这条门禁上**。因此提供显式降级路径：
+HC-18 要求每批 15%–25%（目标 20%）为金标准引用题，而 `GoldenSet/` 只允许用户手动维护 —— **没有自备真题的用户会卡在这条门禁上**。因此提供显式降级路径：
 
 ```bash
 # 有金标准（推荐）：放入 GoldenSet/structured/ 后
@@ -248,10 +267,14 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
 ```
 ├── .claude-plugin/
 │   └── marketplace.json     # Claude Code 插件市场清单（/plugin marketplace add 用）
+├── .github/
+│   └── workflows/ci.yml     # CI：compileall + pyflakes + 冒烟测试 + 配置解析 + 发布预检
+├── examples/
+│   └── minimal/             # 3 题可运行示例（输入素材/示例科目/ + 中间产物/batch001/）
 ├── tools/
-│   └── preflight_publish.py # 投稿/发布前预检（按各渠道收录规范自检）
+│   └── preflight_publish.py # 投稿/发布前预检（frontmatter + 悬空链接）
 ├── smoketest/
-│   └── run_smoketest.py     # 冒烟测试（23 项断言，含规则命中断言）
+│   └── run_smoketest.py     # 冒烟测试（30 项断言，含规则命中与首次使用引导）
 └── skills/medagentwork/
     ├── SKILL.md             # 技能入口：定位与适用边界 + 安全说明 + 管线总览 + 门禁速查
     ├── references/          # 按需加载的角色手册与规则
@@ -268,21 +291,21 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
     │   ├── bpa-v1.md        #   教师重点蓝图版（BPA v1.0）生成规则
     │   └── prompts/         #   五个角色的完整提示词（路径已清洗为分享版）
     ├── scripts/             # 全部门禁/状态/渲染脚本（纯标准库）
-    │   ├── pipeline_config.py        #   pipeline.yaml 阈值运行时加载器（单一事实来源）
-    │   ├── quality_policy.py/.json   #   HC-25 阈值与 profile 单一事实来源
-    │   ├── check_keypoint_coverage.py #  教师重点覆盖门禁（HC-20：硬事实原样核验 + 落点行）
-    │   ├── check_review_detail.py    #   复习资料详细度门禁（HC-26：九槽位 + 模块八块 + 自测对账）
-    │   ├── check_learning_value.py   #   题目学习价值门禁（HC-24：逐项覆盖/错误认知/引文实证）
-    │   ├── check_source_concepts.py  #   生成期概念标注门禁（HC-27：S1–S6）
-    │   ├── build_concept_graph.py    #   概念图建图（从 display_id 修模块 + 页序/模块前置边）
-    │   ├── label_concepts.py         #   一题多概念标注（三信号，带 evidence）
-    │   ├── check_concept_graph.py    #   概念图门禁（C1–C8）
-    │   ├── build_concept_cards.py    #   Obsidian 概念卡 + 索引 + MOC 回链
-    │   ├── spaced_schedule.py        #   复习卡片/间隔调度 + 自测答案对账
-    │   ├── telemetry.py              #   JSONL 事件日志（可观测性，best-effort）
-    │   └── validate/                 #   R1-R13 校验规则引擎
+    │   ├── init_workspace.py / doctor.py / save.py / ingest.py / utils.py  # 工作区初始化、首次使用自检、产物摄入与公共工具
+    │   ├── pipeline_config.py / quality_policy.py / quality_policy.json  # 题库阈值与 R0–R4 策略（单一事实来源）
+    │   ├── validate_options.py / validate/                          # R1–R13 + B1/JS1/S3 规则引擎
+    │   ├── gate_check.py / quality_gate.py                          # 阶段门禁（GATE-A2~终审）与 R0–R4 编排
+    │   ├── workflow_state.py / contract_check.py                    # 状态原子写与产物契约校验
+    │   ├── bloom_sampler.py / fact_check.py / frequency_analyzer.py / kaoyan_picker.py  # 分布、事实、考点与金标准配额
+    │   ├── check_keypoint_coverage.py / check_learning_value.py     # HC-20 重点覆盖 / HC-24 学习价值门禁
+    │   ├── check_review_detail.py / spaced_schedule.py              # HC-26 详细度门禁 / 间隔复习
+    │   ├── check_source_concepts.py / check_concept_graph.py        # HC-27 生成期标注 / 概念图门禁
+    │   ├── build_concept_graph.py / label_concepts.py / build_concept_cards.py  # 概念图/标注/概念卡
+    │   ├── clean_produce_markup.py / verify_produce_rules.py / verify_page_numbers.py  # 产物形态与页码门禁
+    │   ├── qbank.py / render_qbank_html.py / render_review.py       # 题库数据层与 MD/HTML 渲染
+    │   └── telemetry.py / regression_db.json                        # JSONL 事件日志 / 回归教训库
     ├── schemas/             # agent2/3/4 产物契约 + review_detail / kc 契约
-    ├── assets/              # 押题卷 HTML 模板、成品页模板、金标准模板
+    ├── assets/              # 押题卷/成品页历史 HTML 模板、金标准模板、example_workspace 示例工作区
     └── pipeline.yaml        # 声明式管线配置（阶段/门禁/SLO/thresholds）
 ```
 
@@ -308,12 +331,13 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 
 ## 持续集成
 
-`.github/workflows/ci.yml` 在每次 push / PR 时执行：语法编译检查（`compileall`）、静态检查（`pyflakes`）、冒烟测试（含规则命中断言）、`pipeline.yaml` 阈值可解析性验证。
+`.github/workflows/ci.yml` 在每次 push / PR 时（Python 3.10 / 3.12 矩阵）执行：语法编译检查（`compileall`）、静态检查（`pyflakes`，仅提示不阻断）、冒烟测试（含规则命中断言）、`pipeline.yaml` 阈值可解析性验证，以及投稿/发布前预检（`tools/preflight_publish.py --strict`）。
 
 ## 变更记录
 
 见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.4**。
 
+- **未发布（本地）**：首次使用引导补全——新增 `doctor.py`、`init_workspace.py --example`、3 题可运行示例，统一安装路径/教师重点命名/`validate_options.py` 退出码口径，冒烟测试增至 30 项断言。
 - **v2.4（2026-10-31）**：面向分发优化：新增独立工作区初始化、可移植 R0–R4 质量门禁、本校考试重点快速开始流程，并更新插件版本元数据。
 - **v2.3（2026-10-31）**：对齐原项目 10-23 ~ 10-31 的规则线——**HC-25 全流程质量基准**（R0–R4 阶段门禁 + `quality_policy.json` 阈值单一事实来源）、**HC-26 复习资料详细度**（九槽位 + 模块八块 + 自测对账，新增 `check_review_detail.py`）、**HC-27 概念层**（概念图 / 标注 / C1–C8 门禁 / Obsidian 概念卡，新增 5 个脚本）、**HC-22 真题双族配额**，并补齐此前被引用但未分发的 `check_learning_value.py`。
 - **v2.2（2026-09-21）**：移除全部插图相关功能。
@@ -332,9 +356,10 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 
 ## 使用约定
 
-- **所有脚本必须在工作区目录下运行**（脚本按当前目录定位 `中间产物/`、`workflow_state.json` 等）：`cd <工作区> && python <技能目录>/scripts/xxx.py ...`
-- 工作区建议先运行 `scripts/init_workspace.py` 创建；它不会修改 skill 包。
-- **考试重点使用你自己学校的版本**；换学校时只换 `输入素材/<科目>/` 下的重点文件，不改管线。
+- **除 `init_workspace.py` / `doctor.py` 这类初始化/自检脚本外，门禁/渲染脚本必须在工作区目录下运行**（脚本按当前目录定位 `中间产物/`、`workflow_state.json` 等）：`cd <工作区> && python {SKILL}/scripts/xxx.py ...`
+- 工作区建议先运行 `{SKILL}/scripts/init_workspace.py` 创建；它不会修改 skill 包。首次使用建议再跑一次 `doctor.py`。
+- `validate_options.py` 的退出码口径：**FAIL>0 → 1；仅 WARN → 0；文件缺失/未解析到题目 → 2**。WARN 不阻断交付，但应记录并在下一版收敛。
+- **教师重点使用你自己学校的版本**；文件名建议为 `<科目>_教师重点_<学校或日期>.md`。换学校时只换 `输入素材/<科目>/` 下的重点文件，不改管线。
 - 金标准（GoldenSet）只允许用户手动维护——真题/权威题库由你自行放入；没有金标准时必须显式使用 `--golden-absent` 降级。
 
 ## 设计哲学（一分钟版）
@@ -346,7 +371,7 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 - **补丁溯源**：修复必须同步源文件，杜绝「聚合文件修好了、源文件还坏着」
 - **配置即事实来源**：阈值集中在 `pipeline.yaml` 与 `quality_policy.json`，运行时读取
 - **Bloom 独立重算**：不采信 LLM 自述的认知分布，从题库重算并交叉验证
-- **规则命中有测试**：冒烟测试断言每条规则真的被触发，而不是只验“脚本能跑”
+- **规则命中有测试**：冒烟测试断言 R1、R2、R5、R7、R8、R10–R13 与 JS1 真的被触发，而不是只验“脚本能跑”
 
 ## 许可
 

@@ -20,12 +20,13 @@
 
 用法（在用户工作区目录下执行）
     python {SKILL}/scripts/check_keypoint_coverage.py \
-        --keypoints "输入素材/{科目}/{科目}_教师重点_*.md" \
+        --keypoints "输入素材/{科目}/{科目}_教师重点_<学校或日期>.md" \
         --md "复习资料/{科目}教学计划版/{科目}_主复习资料.md" \
         [--allowlist <文件，每行一条可豁免的硬事实，'#' 开头为注释>] \
         [--no-anchors] [--json]
 
     教师重点原文支持 .md / .txt（.docx 请先转 md）。
+    --keypoints 按字面路径读取，不展开 * 通配符；多份重点请先合并或分别运行。
 """
 import argparse
 import io
@@ -167,6 +168,7 @@ def main() -> int:
             print(f"ERROR —— .docx 不受支持，请先转为 .md/.txt：{args.keypoints}")
         else:
             print(f"ERROR —— 教师重点原文不存在：{args.keypoints}")
+            print("提示：--keypoints 按字面路径读取，不会展开 * 通配符；请传入实际文件名。")
         return 2
     if not args.md:
         print("ERROR —— 缺少 --md（主复习资料 MD）")

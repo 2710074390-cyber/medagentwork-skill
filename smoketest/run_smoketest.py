@@ -56,9 +56,9 @@ questions = [
                  "E": "脑静脉窦血栓形成所致"},
      "answer": "A", "analysis": "缺血性脑卒中以大动脉粥样硬化性血栓形成最常见。",
      "module": "M1", "bloom_level": "记忆"},
-    # 坏题1：选项过短（R8）
+    # 坏题1：含禁止项"以上都是"（R1 FAIL）+ 其余选项过短（R8 WARN）
     {"question_id": "N-A1-002", "type": "A1", "stem": "脑出血最好发部位是下列哪一项？",
-     "options": {"A": "壳核", "B": "丘脑", "C": "桥脑", "D": "小脑", "E": "脑叶"},
+     "options": {"A": "以上都是", "B": "丘脑", "C": "桥脑", "D": "小脑", "E": "脑叶"},
      "answer": "A", "analysis": "基底节区壳核出血最常见。",
      "module": "M1", "bloom_level": "记忆"},
     # 坏题2：无解析
@@ -72,13 +72,14 @@ questions = [
 
 print("== 4. GATE-A2 校验（应 FAIL>0 并 BLOCK） ==")
 r = run(f'python "{SCRIPTS + "/validate_options.py"}" --batch batch001 --mode full', cwd=WS)
-check("validate_options 可执行", r.returncode in (0, 1, 2), r.stderr[:300])
+check("FAIL>0 时退出码 1", r.returncode == 1, f"returncode={r.returncode}; {r.stderr[:200]}")
 report_dir = WS / "reports" / "validate"
 check("校验报告生成", any(report_dir.glob("*.json")), r.stdout[-300:])
 
 print("== 5. gate_check 阶段门禁（应 HALT） ==")
 r = run(f'python "{SCRIPTS + "/gate_check.py"}" --batch batch001 --stage agent2_done', cwd=WS)
-check("gate_check 可执行", r.returncode in (0, 1, 2), r.stderr[:300])
+check("GATE-A2 在 FAIL>0 时 BLOCKED（exit 1）", r.returncode == 1,
+      f"returncode={r.returncode}; {r.stdout[-300:]}{r.stderr[:200]}")
 
 print("== 6. Bloom 采样 ==")
 r = run(f'python "{SCRIPTS + "/bloom_sampler.py"}" --batch batch001 --threshold 15', cwd=WS)
@@ -103,6 +104,7 @@ summary_files = sorted(report_dir.glob("*.json"), key=lambda p: p.stat().st_mtim
 latest = json.loads(summary_files[-1].read_text(encoding="utf-8"))
 fails = latest.get("summary", {}).get("fail", 0) if isinstance(latest, dict) else None
 check("修复后 FAIL==0", fails == 0, f"summary.fail={fails}; stdout尾部: {r2.stdout[-200:]}")
+check("仅 WARN 时退出码 0", r2.returncode == 0, f"returncode={r2.returncode}")
 
 print("== 10. MD 导出（qbank.py） ==")
 r = run(f'python "{SCRIPTS + "/qbank.py"}" export-md --file 中间产物/batch001/ALL_questions.json '
@@ -156,6 +158,7 @@ rule_probe = [
 probe_path = WS / "中间产物" / "batch001" / "_rule_probe.json"
 probe_path.write_text(json.dumps(rule_probe, ensure_ascii=False, indent=2), encoding="utf-8")
 r = run(f'python "{SCRIPTS + "/validate_options.py"}" --file 中间产物/batch001/_rule_probe.json --mode full', cwd=WS)
+check("FAIL>0 时退出码 1", r.returncode == 1, f"returncode={r.returncode}")
 probe_report = WS / "reports" / "validate" / "validate_options_report__rule_probe.json"
 hit_rules = set()
 hit_details = []
@@ -190,6 +193,18 @@ r8_config_ok = run(f'python -c "import sys; sys.path.insert(0, \'{SCRIPTS}\'); '
                    f'assert \'妄想\' in g(), \'默认词表缺失\'; print(\'ok\')"', cwd=WS)
 check("R8 豁免词表由 pipeline.yaml 驱动", "ok" in r8_config_ok.stdout,
       r8_config_ok.stdout + r8_config_ok.stderr[:200])
+
+print("== 12. 首次使用：--example + doctor ==")
+example_ws = WS / "_example_ws"
+r = run(f'python "{SCRIPTS + "/init_workspace.py"}" "{example_ws}" --subject 示例科目 --example')
+check("init_workspace --example 可执行", r.returncode == 0, r.stdout[-200:] + r.stderr[:200])
+check("示例题库已复制", (example_ws / "中间产物" / "batch001" / "ALL_questions.json").exists(),
+      r.stdout[-200:])
+check("示例运行说明已生成", (example_ws / "示例运行说明.md").exists(), r.stdout[-200:])
+r = run(f'python "{SCRIPTS + "/doctor.py"}" --workspace "{example_ws}"')
+check("doctor 在示例工作区 exit 0", r.returncode == 0, r.stdout[-300:] + r.stderr[:200])
+r = run(f'python "{SCRIPTS + "/validate_options.py"}" --batch batch001 --mode full', cwd=example_ws)
+check("示例题库 validate exit 0", r.returncode == 0, r.stdout[-300:] + r.stderr[:200])
 
 print(f"\n{'=' * 40}\n结果: {PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

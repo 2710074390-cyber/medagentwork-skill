@@ -7,7 +7,7 @@
 # ⚠️ skill 分享版路径约定（2026-09）:
 #   - 本文件为声明式规范文档：阶段/门禁/SLO/阈值的单一事实来源
 #   - 其中 command 字段为逻辑命令；实际执行时脚本位于本 skill 的 scripts/ 目录，
-#     即 `cd <你的工作区> && python <技能目录>/scripts/validate_options.py --batch {batch_id}`
+#     即 `cd <工作区> && python {SKILL}/scripts/validate_options.py --batch {batch_id}`
 #   - subjects 段（如保留）为文档速查；RAG 参数唯一事实源随 知识库素材/ 缩减已不适用，
 #     检索增强由宿主 agent 自行接入
 #

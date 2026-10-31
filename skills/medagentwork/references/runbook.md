@@ -24,7 +24,7 @@
 
 | 阶段 | 目录 | 产物命名 |
 |---|---|---|
-| 输入 | `输入素材/{科目}/` | 用户放入教材/笔记 |
+| 输入 | `输入素材/{科目}/` | 用户放入教材/笔记；教师重点建议命名为 `{科目}_教师重点_<学校或日期>.md` |
 | Agent 2 | `中间产物/{batchID}/` | `ALL_questions.json`、备考资料 .md |
 | Agent 3 | `质检报告/{batchID}/` | `A3_质检报告.json` |
 | Agent 4 | `最终产物/{batchID}/` | `ALL_questions_FIXED.json`、**`ALL_questions_FIXED.md`（最终交付格式，强制）**、`AGENT4_追溯日志.json`、`AGENT4_修改声明.md`、`escalations_for_human.md` |
@@ -37,15 +37,16 @@
 ## 3. 门禁命令（每个阶段转换前强制执行）
 
 ```bash
-cd <你的工作区>
+cd <工作区>
 
-GATE-A2   python {SKILL}/scripts/validate_options.py --batch {batchID} --mode full   # FAIL==0 才放行
+自检      python {SKILL}/scripts/doctor.py --workspace <工作区>   # 首次使用/环境复核
+GATE-A2   python {SKILL}/scripts/validate_options.py --batch {batchID} --mode full   # FAIL==0 才放行；仅 WARN 退出 0（不阻断）；文件/数据错误退出 2
 GATE-A3   python {SKILL}/scripts/gate_check.py --batch {batchID} --stage agent3_done
 GATE-A4   python {SKILL}/scripts/gate_check.py --batch {batchID} --stage agent4_done
 MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batchID}/ALL_questions_FIXED.json --out 最终产物/{batchID}/ALL_questions_FIXED.md --title "{科目}·{模块}（{batchID}）"
 金标准配额  python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json   # 占比≥15% 通过
             无金标准时显式降级：追加 --golden-absent（报告留痕 degraded=true）
-重点覆盖  python {SKILL}/scripts/check_keypoint_coverage.py --keypoints 输入素材/{科目}/{科目}_教师重点_*.md --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md   # HC-20/D0 教师重点原文锚定（有教师重点输入的批次，门禁A5 与终审前各跑一次；exit 1 → 回退 Agent 5 补写；无教师重点输入 → SKIPPED）
+重点覆盖  python {SKILL}/scripts/check_keypoint_coverage.py --keypoints "输入素材/{科目}/{科目}_教师重点_<学校或日期>.md" --md "复习资料/{科目}教学计划版/{科目}_主复习资料.md"   # HC-20/D0（--keypoints 按实际文件名传入，脚本不展开 * 通配符；exit 1 → 回退 Agent 5 补写；无教师重点输入 → SKIPPED）
 详细度    python {SKILL}/scripts/check_review_detail.py --md 复习资料/{科目}教师重点版/{科目}教师重点版_主复习资料.md --mode auto --profile release_teacher_keypoint   # HC-26（门禁A5 与终审前各跑一次；enforce FAIL → 返工）
 学习价值  python {SKILL}/scripts/check_learning_value.py --file 最终产物/{batchID}/ALL_questions_FIXED.json   # HC-24（schema 2.0 批次；FAIL>0 不得交付）
 概念标注  python {SKILL}/scripts/check_source_concepts.py --file 最终产物/{batchID}/ALL_questions_FIXED.json --batch {batchID}   # HC-27（schema 2.1 批次；旧批次 SKIP）
@@ -106,6 +107,7 @@ python {SKILL}/scripts/fact_check.py golden --file 中间产物/{batchID}/ALL_qu
 |---|---|
 | 门禁 BLOCKED | 读 gate 的 reason → 回退对应角色修复 → 重新运行门禁 |
 | JSON 解析失败 / YAML 前置 | 要求角色输出纯 JSON 数组，元数据单独 .md（batch006 教训） |
+| 教师重点覆盖门禁报“原文不存在”/ exit 2 | `--keypoints` 传入实际文件名（不是 `*`）；建议命名 `{科目}_教师重点_<学校或日期>.md`；多份重点先合并 |
 | 选项截断/缺单位 | validate R7/R8/R9 → MedFix 修复，禁止暴力截断（batch014 教训） |
 | Bloom 偏差 >15% | 回退 MedGen 按配额修正（`bloom_sampler.py`，HC-15） |
 | 补丁未溯源 | 追溯日志缺 source_file_synced → 打回 MedFix（HC-13，batch014 教训） |

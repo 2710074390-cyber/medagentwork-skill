@@ -11,7 +11,7 @@
 |---|---|---|
 | KC 注册表 | `中间产物/{batchID}/pilot/kc_registry.json`（或 `archive/中间产物/*/pilot/`） | 每科一份，含 `display_id / title / keypoints / pages / question_ids / status / metadata.blueprint_weights`。**没有注册表就没有节点，概念层无从谈起** |
 | 题库 | `最终产物/{batchID}/ALL_questions_FIXED.json` | 概念标注与 measures 边的来源 |
-| 教师重点锚定清单 | `输入素材/{科目}/{科目}_教师重点_*.md` | 提供 `keypoint_ref`，是 KC 与题之间的连接键 |
+| 教师重点锚定清单 | `输入素材/{科目}/{科目}_教师重点_<学校或日期>.md` | 提供 `keypoint_ref`，是 KC 与题之间的连接键 |
 
 契约 Schema：`{SKILL}/schemas/kc.schema.json`。
 
