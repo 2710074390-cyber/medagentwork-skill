@@ -77,7 +77,15 @@ python {SKILL}/scripts/validate_options.py --batch batch001
 
 ## 2. 工作区初始化（首次使用）
 
-用户首次使用时，在用户工作区创建目录骨架：
+推荐先用初始化脚本创建独立工作区：
+
+```bash
+python {SKILL}/scripts/init_workspace.py <工作区> --subject <科目>
+```
+
+它只创建工作区目录、`workflow_state.json` 和输入素材说明，不会修改 skill 包本身。把**你自己学校的考试重点**放入 `输入素材/<科目>/`；更换学校时只需更换输入重点，题库和资料生成管线不需要改动。
+
+用户首次使用时，工作区目录包括：
 
 ```
 输入素材/{科目}/      # 用户放入教材/笔记/重点（唯一人工输入）
@@ -147,7 +155,13 @@ cd <你的工作区>
 # 产出门禁（每个题库文件，MedGen 交付前自检 + GATE-A2）
 python {SKILL}/scripts/validate_options.py --batch {batchID} --mode full   # FAIL==0 才放行
 
-# 阶段门禁
+# 阶段门禁（分发版 R0–R4；报告写入当前工作区 reports/gate/）
+python {SKILL}/scripts/quality_gate.py --stage r0 --batch {batchID} --profile pilot --mode advisory
+python {SKILL}/scripts/quality_gate.py --stage r2 --batch {batchID} --profile pilot --mode advisory
+python {SKILL}/scripts/quality_gate.py --stage r3 --batch {batchID} --profile release_teacher_keypoint --mode enforce
+python {SKILL}/scripts/quality_gate.py --stage r4 --batch {batchID} --profile release_teacher_keypoint --mode advisory
+
+# 旧版批次门禁（题库阶段转换）
 python {SKILL}/scripts/gate_check.py --batch {batchID} --stage agent3_done   # GATE-A3
 python {SKILL}/scripts/gate_check.py --batch {batchID} --stage agent4_done   # GATE-A4
 python {SKILL}/scripts/gate_check.py --batch {batchID} --stage final         # 终审
@@ -284,7 +298,7 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 | `pipeline.yaml` 中的 RAG / 运维脚本声明 | 已清理（v2.1）：移除未分发的 `chunk_size/top_n/hybrid_search` 与 `runbook.patterns` 脚本引用，改为只声明真实存在的能力 |
 | 站点发布与最新性校验（HC-21） | **不含**：无部署脚本、无 `check_site_freshness.py`。规则以"三道闸 + 文案与数据同源"形式写在 `references/hard-constraints.md`，供自建发布通道时执行 |
 | 真题语料工程与双族配额（HC-22 / HC-23） | **规则保留，工具与语料不含**：`real_question_cli.py` 与 OCR/解析流水线依赖用户自备真题扫描册；无真题时走 HC-18 降级（`--golden-absent`）并在报告留痕 |
-| R0–R4 编排器 `quality_gate.py` | **不含**：编排器依赖项目侧多个未分发检查器。本 skill 提供 `quality_policy.json`（阈值单一事实来源）与各单项门禁脚本，按 `references/quality-gate.md` 的阶段-脚本映射逐条运行、自行汇总报告 |
+| R0–R4 编排器 `quality_gate.py` | 分发版已包含，按 `references/quality-gate.md` 运行；仅检查 skill 包实际提供的门禁，不依赖原项目的站点、插图和研究脚本 |
 
 ## Boundaries
 
