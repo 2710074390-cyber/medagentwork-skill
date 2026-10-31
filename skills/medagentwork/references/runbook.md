@@ -16,6 +16,9 @@
 - GoldenSet 签收只由用户手动执行，任何角色禁止写入
 - 门禁A5：MedReview 产出主复习资料 MD，编排者核对 MD 结构完整（标题层级/模块划分/附录齐全）
 - **门禁A5 附加（HC-20/D0 · 2026-10-18，有教师重点/复习大纲输入的批次强制）**：跑 `python {SKILL}/scripts/check_keypoint_coverage.py --keypoints <教师重点原文> --md <主复习资料 MD>`（数值/时间窗类硬事实缺失或重点条目缺 `📌 重点原文（第X条）` 落点 → exit 1 → 回退 Agent 5 补写；无教师重点输入 → `SKIPPED` 退出码 2，**不视为通过**）
+- **门禁A5 附加（HC-26 详细度 · 2026-10-27）**：跑 `python {SKILL}/scripts/check_review_detail.py --md <主复习资料 MD> --mode auto --profile release_teacher_keypoint`（槽位/八块/自测答案任一不达标 → exit 1 → 按 `cards[].missing_slots` 返工）。**先覆盖、再展开、最后自测**；交付物必须是合并后的单一 MD
+- **门禁A2 附加（HC-27 概念标注）**：`schema_version=2.1` 的批次在 MedGen 交付前自跑 `check_source_concepts.py`；旧批次返回 SKIP，不视为通过
+- **阶段化推进（HC-25）**：新批次/新版本按 R0→R1→R2→R3→R4 推进并在 `reports/gate/` 留结论（PASS/WARN/BLOCKED/SKIPPED）；**SKIPPED ≠ PASS**，详见 `references/quality-gate.md`
 
 ## 2. 目录与命名（铁律）
 
@@ -43,6 +46,10 @@ MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batch
 金标准配额  python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json   # 占比≥15% 通过
             无金标准时显式降级：追加 --golden-absent（报告留痕 degraded=true）
 重点覆盖  python {SKILL}/scripts/check_keypoint_coverage.py --keypoints 输入素材/{科目}/{科目}_教师重点_*.md --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md   # HC-20/D0 教师重点原文锚定（有教师重点输入的批次，门禁A5 与终审前各跑一次；exit 1 → 回退 Agent 5 补写；无教师重点输入 → SKIPPED）
+详细度    python {SKILL}/scripts/check_review_detail.py --md 复习资料/{科目}教师重点版/{科目}教师重点版_主复习资料.md --mode auto --profile release_teacher_keypoint   # HC-26（门禁A5 与终审前各跑一次；enforce FAIL → 返工）
+学习价值  python {SKILL}/scripts/check_learning_value.py --file 最终产物/{batchID}/ALL_questions_FIXED.json   # HC-24（schema 2.0 批次；FAIL>0 不得交付）
+概念标注  python {SKILL}/scripts/check_source_concepts.py --file 最终产物/{batchID}/ALL_questions_FIXED.json --batch {batchID}   # HC-27（schema 2.1 批次；旧批次 SKIP）
+概念图    python {SKILL}/scripts/check_concept_graph.py --subject {科目}   # C1–C8（需 KC 注册表；单科约 0.4s）
 终审      python {SKILL}/scripts/gate_check.py --batch {batchID} --stage final
 ```
 

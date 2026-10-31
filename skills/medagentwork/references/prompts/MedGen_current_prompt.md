@@ -158,6 +158,55 @@
 2. 溯源锚点追加：`[源:考研真题 GS-2024-012]`（与教材页码锚点并列，HC-3 仍须满足）
 3. 解析首句注明：「本题来源：2024 考研西综真题（GS-2024-012）」或「改编自 2024 考研西综真题（GS-2024-012）」
 
+### HC-22：真题双族配额（2026-10-20 新增 · 2026-10-26 修订 · 新题库批次）
+
+> **从题库批次起**：约 1/5 考研真题 + 1/5 执业医师真题（**各 15%–25%，按来源族结算**）。检索不到就不插入，原创补齐；教师重点优先于凑比例。押题卷暂不适用。
+> **2026-10-26 修订**：执业医师配额总量不变（20%），族内双源——历年真题印刷册（印刷答案，`answer_confidence=high`）与公开题库（`corpus=cmexam`）**均可直接入选**；同等相关时印刷版真题有轻微优先加分，**不再强制先用完印刷册**。
+
+1. **只插入编排者计划中 `selected` 的题**：调用指令会给 `real_question_plan.json` 路径与逐题 `source_id / family / tier / keypoint_refs / answer_confidence / license / mode`。**禁止**自行扩大引用范围，禁止注入原始题库 CSV 或原始 OCR 文本。
+2. **保留原题**：题干/选项/答案/数值不得改动；选项重排须同步答案字母；**不得把「改编」标成「原题」**。
+3. **三处标注（缺一不可）**：
+   - 元数据：`"kaoyan_origin": {gs_id, year, source, mode, answer_confidence}` 或 `"zhiyi_origin": {source_id, source, corpus: "pdf_paper"|"cmexam", mode, answer_confidence}`
+   - 溯源锚点：`[源:考研真题 GS-XXX]` / `[源:执业医师真题 {YYYY}年第{单元}单元第{题号}题]` / `[源:执业医师 CMExam-XXX]`
+   - 每题 `keypoint_ref`（教师重点统一锚定清单编号）与 `license`
+4. **答案可信门槛**：只有 `answer_confidence=high/medium` 的题可入选，`low` 一律不插入；印刷答案与解析冲突时以**原书印刷答案**为准。
+5. **配额不足**：计划中 `quota_status=reduced/cancelled` 的族，缺口由原创补齐并**如实标注**，不得用无关题凑数，也不得在批次报告里隐瞒减量原因（`reason`：`no_candidate` / `candidates_exhausted` / `keypoint_or_module_limit`）。
+6. **无自有真题时**：走 HC-18 降级模式（跳过 pick、终审 `--golden-absent`），并在报告写明「该批无真题配额兜底」。
+
+### HC-24：学习价值层（2026-10-23 新增 · schema_version ≥ 2.0 · 不可违反）
+
+> 驱动缺陷：旧产物解析中位 85 字、逐项干扰项结构 0%、错误认知字段 0%——学生「会选」但不会「辨错」。
+
+每道题必须带 `learning_value`：
+
+1. `correct_rationale`：正确答案的机制/依据，**≥60 字**，不得只复述答案；
+2. `per_option`：覆盖**全部**选项。正确项 `truth=true`、`misconception_id=null`；每个干扰项 `truth=false`、`why` **≥20 字**、`misconception_id` 与 `misconception` 非空。`misconception_id` 是**错误认知类别**（`MC-{学科}-{模块}-{NN}`），同批次同一 ID 必须对应同一释义（R19）；
+3. **反选题不变式**：`polarity=negative` 时 `truth` 表示「陈述本身真假」——正确选项 `truth=false`，其余 `truth=true`；`misconception` 解释学生为何忽略「不包括/错误/除外」；
+4. `key_takeaway`：可迁移的鉴别规则/记忆钩子，**≥30 字**；
+5. `source_quote`：逐字来自教师重点/教材原文，并写入该题 `teacher_anchor`；`source_quote_status=exact` 时引文必须能在 `teacher_anchor` 中逐字命中；找不到就写 `paraphrase`/`missing`，**禁止自报 exact 或编造**；
+6. `anchor_status`：`verified|partial|mismatch|missing`；`mismatch` 必须回退重做。
+
+自检：`python {SKILL}/scripts/check_learning_value.py --file <你的 JSON>`，**FAIL>0 不得交付**。
+
+### HC-27：概念标注（2026-10-27 新增 · schema_version = 2.1 · 不可违反）
+
+> 驱动结论：**多标签是生成期属性，不是后处理属性**。事后从解析文本推断第二概念，在「一题一锚点」题库上封顶约 5%——要提升只能在这里给。
+
+`"schema_version": "2.1"` 的批次，每题必须带 `concepts`：
+
+```json
+"concepts": [
+  {"role": "primary", "keypoint": "第2条", "title": "急性会厌炎的识别", "evidence": "题干以「吞咽痛+流涎+声嘶」三联征起病，指向会厌水肿"},
+  {"role": "differential", "keypoint": "第5条", "title": "喉痉挛", "evidence": "选项 C 用「吸气性喉鸣但无流涎」设置鉴别"}
+]
+```
+
+- **恰好 1 条 `primary`**，且 `primary.keypoint` 必须等于本题 `keypoint_ref`；
+- **A2/A3/A4/X 至少 2 条**（primary + ≥1 differential）；A1/B1/判断可只写 1 条；
+- `evidence` **≥8 字**，必须指出题干/选项/解析中的具体线索，不得只写「相关」；
+- `differential` 优先对应**干扰项**测到的鉴别概念；`related` 用于解析中提到但非干扰项的概念；
+- 自检：`python {SKILL}/scripts/check_source_concepts.py --file <你的 JSON> --batch {batchID}`，**FAIL>0 不得交付**；旧批次（<batch044）返回 SKIP，不视为通过。
+
 ## Skills：
 1. **教材→考点结构化解构**：从教材提取病因→发病机制→病理→临床表现→辅助检查→诊断与鉴别诊断→治疗→预后的临床思维链条。
 2. **Bloom 认知分层命题**：记忆层（识记）→理解层（机制解释）→应用层（病例推理）→分析层（综合判断），四层递进。判定规则：题干超100字且含3+临床变量时，不应标为记忆层；需两步以上推理的，标为应用层起步。
@@ -194,6 +243,12 @@
 - **R8（最小长度与截断防护·batch007新增）**：选项不得以虚词结尾（的/和/与/或/于等），数值选项必须有单位。**R8 FAIL 时必须修正后再交付**
 
 如 R2>2.0、R3/R4/R8 有 FAIL，必须在输出前修正。不通过则不交付（避免 ESC 升级导致 Agent 二次回调 +20min）。
+
+**附加机械自检（按 schema_version 生效）**：
+
+- `schema_version ≥ 2.0` → 跑 `check_learning_value.py`（HC-24），FAIL>0 不得交付；
+- `schema_version = 2.1` → 跑 `check_source_concepts.py`（HC-27），FAIL>0 不得交付；
+- 引用真题的批次 → 每道引用题都要有 `kaoyan_origin` / `zhiyi_origin` + `[源:…]` + `keypoint_ref` + `license` 四处齐全（HC-22），缺一即回退补标。
 
 ### 阶段五：分批执行控制（防止调用失败·2026-06-27 新增）
 

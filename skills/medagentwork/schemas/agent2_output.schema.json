@@ -48,11 +48,105 @@
       "non_functioning_distractors": { "type": "integer" },
       "kaoyan_origin": {
         "type": ["object", "string"],
-        "description": "考研原题来源标注（HC-18，2026-08-21）：{gs_id: GS-2024-012, year: 2024, source: '2024考研西综·第12题', mode: '原题'|'改编'}；非考研原题可省略"
+        "description": "考研原题来源标注（HC-18 / HC-22）：{gs_id: GS-2024-012, year: 2024, source: '2024考研西综·第12题', mode: '原题'|'改编'}；非考研原题可省略"
+      },
+      "zhiyi_origin": {
+        "type": ["object", "string"],
+        "description": "执业医师真题来源标注（HC-22 修订 · 2026-10-26）：{source_id, source, corpus: 'pdf_paper'|'cmexam', mode: '原题'|'改编', answer_confidence: 'high'|'medium'}；corpus=pdf_paper 表示历年真题印刷册，cmexam 表示公开题库；非执业医师真题可省略"
       },
       "exam_focus": { "type": ["string", "boolean"] },
-      "topic": { "type": "string" }
+      "topic": { "type": "string" },
+      "schema_version": {
+        "type": "string",
+        "enum": ["1.0", "2.0", "2.1"],
+        "description": "题目契约版本。2.0 起 learning_value 为交付必需项（HC-24）；2.1 起 concepts 为交付必需项（HC-27）。1.0/2.0 为历史产物，不追溯。"
+      },
+      "concepts": {
+        "type": "array",
+        "description": "HC-27 概念标注（schema 2.1 必填）：这道题测到的概念，1 条 primary + 至少 1 条 differential。keypoint 用教师重点条号作为与 KC 卡片的连接键，title 写概念名，evidence 写为什么会测到它。A2/A3/A4/X 至少 2 条；A1/B1/判断 可只写 1 条。",
+        "minItems": 1,
+        "maxItems": 4,
+        "items": {
+          "type": "object",
+          "required": ["role", "keypoint", "title", "evidence"],
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": ["primary", "differential", "related"],
+              "description": "primary=本题主概念（每题唯一）；differential=干扰项对应的鉴别概念；related=解析中提到但非干扰项"
+            },
+            "keypoint": {
+              "type": "string",
+              "minLength": 2,
+              "description": "教师重点条号，与 keypoint_ref 同格式（如「第2条」）。primary 必须与本题 keypoint_ref 一致。"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 2,
+              "description": "概念名，尽量用教师重点原文的词，便于回查 KC 卡片标题"
+            },
+            "evidence": {
+              "type": "string",
+              "minLength": 8,
+              "description": "为什么这道题测到这个概念：指出题干/选项/解析中的具体线索，不得只写「相关」"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "learning_value": {
+        "type": "object",
+        "description": "HC-24 学习价值层。schema_version=2.0 的批次每道题必须提供。",
+        "required": ["correct_rationale", "per_option", "key_takeaway", "source_quote", "source_quote_status", "anchor_status", "review_status"],
+        "properties": {
+          "correct_rationale": { "type": "string", "minLength": 60 },
+          "per_option": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["label", "truth", "why"],
+              "properties": {
+                "label": { "type": "string" },
+                "truth": { "type": "boolean" },
+                "why": { "type": "string", "minLength": 20 },
+                "misconception_id": { "type": ["string", "null"], "description": "错误认知类别 ID；同批次同一 ID 必须对应同一释义（R19）" },
+                "misconception": { "type": ["string", "null"] }
+              },
+              "additionalProperties": false
+            }
+          },
+          "key_takeaway": { "type": "string", "minLength": 30 },
+          "source_quote": { "type": "string", "description": "exact 时必须能在 teacher_anchor 中逐字命中（R16）" },
+          "source_quote_status": { "type": "string", "enum": ["exact", "paraphrase", "missing", "mismatch"] },
+          "anchor_status": { "type": "string", "enum": ["verified", "partial", "mismatch", "missing"] },
+          "quality_flags": { "type": "array", "items": { "type": "string" } },
+          "review_status": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
     },
+    "allOf": [
+      {
+        "if": {
+          "required": ["schema_version"],
+          "properties": { "schema_version": { "const": "2.1" } }
+        },
+        "then": { "required": ["concepts"] }
+      },
+      {
+        "if": {
+          "required": ["schema_version", "type"],
+          "properties": {
+            "schema_version": { "const": "2.1" },
+            "type": { "enum": ["A2", "A3", "A4", "X"] }
+          }
+        },
+        "then": {
+          "properties": { "concepts": { "minItems": 2 } }
+        }
+      }
+    ],
     "additionalProperties": true
   }
 }

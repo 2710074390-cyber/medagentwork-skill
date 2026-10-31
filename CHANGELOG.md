@@ -5,9 +5,78 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [v2.3] — 2026-10-31
 
-### 新增（对齐原项目最新规则 · HC-20 教师重点原文锚定 · 2026-10-18/19）
+> 本版把原项目 2026-10-23 ~ 10-31 期间固化的规则线一次性对齐进 skill：HC-25 全流程质量基准、
+> HC-26 复习资料详细度、HC-27 概念层、HC-22 真题双族配额，并补齐 HC-24 学习价值门禁脚本。
+> 同时一并发布此前累积在 Unreleased 的 HC-20 / BPA v1.0 变更。
+
+### 新增（HC-26 复习资料详细度 · 2026-10-27）
+
+- **新增 `references/review-detail.md`** —— 详细度契约全文：三种输入模式（teacher_keypoint /
+  course_schedule / module）、卡片九槽位 + 案例、分级量化下限与上限、反注水规则、模块八块、
+  课程安排八块、门禁口径与单一文件交付要求。核心主张：**详细度不是字数，是「读一遍能否独立
+  完成临床推理与应试判断」**。
+- **新增 `scripts/check_review_detail.py`（836 行）+ `scripts/spaced_schedule.py` +
+  `scripts/quality_policy.py` + `scripts/quality_policy.json` + `schemas/review_detail.schema.json`**
+  —— 解析卡片九槽位/模块八块/课程自测对账，输出 PASS/WARN/FAIL 与逐卡 `missing_slots`、
+  逐模块 `missing_blocks`；阈值从 `quality_policy.json` 读取（无 policy 时回退内置默认值）。
+- `references/prompts/Agent5_MedReview_Prompt.md`：新增 **D6 详细度契约**（D6.1 九槽位 /
+  D6.2 分级阈值 / D6.3 反注水 / D6.4 模块八块 / D6.5 课程安排八块 / D6.6 自检）、**V18 自检行**、
+  行为约束第 20 条；标题升级为 v6.0 双版本说明。
+- `references/medreview.md`：必读文件加 `review-detail.md`；执行规则新增 D6 与"单一文件交付"；
+  完成报告新增 V18 项。
+
+### 新增（HC-25 全流程质量基准 · 2026-10-23）
+
+- **新增 `references/quality-gate.md`** —— R0 需求评审 → R1 开发实现 → R2 测试验证 →
+  R3 发布上线 → R4 运行复盘；profile 与阈值表、门禁适用范围矩阵（题库/押题卷/复习资料）、
+  阶段-脚本映射、WARN/BLOCKED/SKIPPED 口径与豁免规则、版本化与变更管理。
+- `references/medmaster.md`：编排规则新增"阶段化推进（HC-25）"，必读文件加 `quality-gate.md`。
+- `references/runbook.md`：生命周期与门禁命令表补 R0–R4 与各阶段附加门禁。
+- `references/prompts/MedMaster_current_prompt.md`：新增 HC-25 五条编排规则 + 本 skill 可跑门禁清单。
+
+### 新增（HC-27 概念层 · 2026-10-27）
+
+- **新增 `references/concept-layer.md`** —— 一层三边的数据结构（KC 节点 / measures / prereq /
+  ref + 模块级门控）、**每条边必须带 evidence** 的硬约束、从 `display_id` 重解析模块的陷阱、
+  门禁 C1–C8 口径、概念卡命名铁律（学科前缀防同名歧义）、明确"本期不做"清单。
+- **新增脚本**：`build_concept_graph.py`（建图 + 模块修正 + 无环校验）、`label_concepts.py`
+  （三信号标注，有源标注走 declared）、`check_concept_graph.py`（C1–C8）、
+  `build_concept_cards.py`（Obsidian 概念卡 + 索引 + MOC 回链）、`check_source_concepts.py`
+  （HC-27 生成期 S1–S6 门禁）、`schemas/kc.schema.json`。
+- `schemas/agent2_output.schema.json`：`schema_version` 增加 `2.1`；新增 `concepts` 与
+  `learning_value` 属性；用 `if/then` 只在 2.1 下要求 `concepts`、A2/A3/A4/X `minItems=2`。
+  **1.0/2.0 完全不受影响**。
+- `references/prompts/MedGen_current_prompt.md`：新增 **HC-24 学习价值层** 与 **HC-27 概念标注**
+  两节 + 阶段四自检附加三条。
+- `references/medgen.md`：必读加 `concept-layer.md`；自检清单明确 `check_learning_value.py`
+  与 `check_source_concepts.py`。
+
+### 新增（HC-22 真题双族配额 · 2026-10-26 修订）
+
+- `references/prompts/MedGen_current_prompt.md` / `MedMaster_current_prompt.md`：新增 HC-22 专节
+  ——20% 考研 + 20% 执业医师、**按族结算**、族内多源可直接入选、`quota_status=reduced/cancelled`
+  不阻断但要留 `reason`、三处标注（元数据 / `[源:…]` / `keypoint_ref`+`license`）、
+  **不得把改编标成原题**、不得用 `--golden-absent` 绕过比例校验。
+- `references/medgen.md`：配额规则新增第 8 条（双族口径 + 报告按族分列）。
+- `schemas/agent2_output.schema.json`：新增 `zhiyi_origin`（含 `corpus=pdf_paper|cmexam`）。
+
+### 新增（HC-24 学习价值门禁脚本）
+
+- 补入 `scripts/check_learning_value.py` —— `references/medgen.md` 早已引用该脚本但未随包分发，
+  本次补齐（R14 逐项覆盖 / R15 错误认知 / R16 引文实证 / R17 信息量 / R19 认知 ID 一致性 /
+  answer 一致性）。
+
+### 变更（脚本工作目录基准统一）
+
+- 新分发脚本的 `BASE` 由 `Path(__file__).resolve().parent.parent` 统一改为 `Path.cwd()`，
+  与 `bloom_sampler.py` / `fact_check.py` / `kaoyan_picker.py` 的口径一致：**脚本在用户工作区
+  下执行，产物落 cwd**。`check_review_detail.py` 的 `--policy` 与 report schema 改为**随包定位**
+  （`{SKILL}/scripts/quality_policy.json`、`{SKILL}/schemas/review_detail.schema.json`），
+  离开原项目也能跑。
+
+### 文档（对齐原项目 · HC-20 教师重点原文锚定 · 2026-10-18/19）
 
 - **HC-20 教师重点原文锚定与逐条覆盖**：教师重点/复习大纲原文 = **权威范围契约（下限）**，
   优先级**高于上游备考资料**；条目数值/时间窗/分级界值/剂量/百分比/并列与禁止结构须以

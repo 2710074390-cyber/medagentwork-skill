@@ -209,6 +209,31 @@ Golden Set 路径：05_GoldenSet\golden_set_v1.json
 
 **HC-5/6/8 交叉触发说明**：考研原题引用属于「外来素材合并」范畴——对引用题执行 HC-5 数值抽查（≥10%）、HC-8 GoldenSet 比对（100% 与 gs_id 源比对，Agent 3 D21 覆盖）；「引用真题」的答案本身以官方公布为准，发现与教材冲突 → 升级告警，不静默修改（HC-6/8 的修正范围限于改编题自行设计的干扰项）。
 
+### HC-22：真题双族配额编排（2026-10-20 新增 · 2026-10-26 修订 · 新题库批次）
+
+> 从题库批次起：约 1/5 考研 + 1/5 执业医师（**各 15%–25%，按来源族结算**）。检索不到就不插入，原创补齐；教师重点优先于凑比例。押题卷暂不适用。
+> 2026-10-26 修订：执业医师族内双源——历年真题印刷册与公开题库**均可直接入选**，同等相关时印刷版轻微优先，不再强制先用完印刷册。
+
+**编排三步骤**：
+
+1. **批次启动（替代 HC-18 的单一 pick）**：产出逐题计划 `中间产物/{batchID}/real_question_plan.json`，每题含 `source_id / family（kaoyan|zhiyi）/ tier / keypoint_refs / answer_confidence / license / mode`。
+   - `quota_status`：`met` 达标｜`reduced` 按可用量减量｜`cancelled` 无候选取消该族｜`disabled` 配额为 0；
+   - `reduced` / `cancelled` **不阻断批次**，但必须保留 `reason`（`no_candidate` / `candidates_exhausted` / `keypoint_or_module_limit`）与检索日志。
+2. **配额注入**：Agent 2 指令必须给计划文件路径 + `selected[]` 字段；**禁止**注入原始题库 CSV 或原始 OCR 文本。指令中同时写明各族目标数与 `quota_status`。
+3. **终审校验（GATE-FINAL 前）**：比例、答案、重复、覆盖、`license`、溯源任一不通过 → **halt**；**不得用 `--golden-absent` 绕过比例校验**。比例按族结算（执医族 = 印刷册 + 公开题库之和）。
+
+**无自有真题时**：走 HC-18 降级模式（跳过 pick、`check` 显式 `--golden-absent`、报告留痕 `degraded: true`），并在批次报告写明「该批无真题配额兜底」。本 skill 不随包分发真题语料与 OCR 流水线（HC-23），批次内**不得**跑 OCR。
+
+### HC-25：全流程质量基准与阶段门禁（2026-10-23 新增 · 不可违反）
+
+> 三条底线：旧产物不动；门禁不可跳过（SKIPPED ≠ PASS）；标准可执行。完整规范见 `references/quality-gate.md`。
+
+1. **阶段化推进**：R0 需求评审 → R1 开发实现 → R2 测试验证 → R3 发布上线 → R4 运行复盘。每阶段必须有显式结论，报告落 `reports/gate/quality_gate_{batchID}_{stage}_*.json|md`。
+2. **准入**：R2 未通过不得进 R3；R3 `enforce` BLOCKED 禁止交付；WARN 必须记录豁免理由/影响/补做计划/责任人；**同一问题连续两个版本 WARN → 自动升级 BLOCKED**。
+3. **阈值单一事实来源**：`{SKILL}/scripts/quality_policy.json`。改阈值必须升 `policy_version` 并跑 `quality_policy.py --validate`。
+4. **适用范围矩阵**：批次可声明 `product_types`（`question_bank|prediction_paper|review_material`）。A2/A3/A4 只对题库/押题卷生效；资料附录（HC-9/10/11）与详细度（HC-26）只对复习资料生效；**不适用项显式记 SKIPPED，不得当 PASS**。
+5. **本 skill 可跑的门禁**：R1 `contract_check.py`/`ingest.py`；R2 `validate_options.py`/`gate_check.py`/`bloom_sampler.py`/`check_learning_value.py`/`check_source_concepts.py`/`check_concept_graph.py`/`check_review_detail.py`/`spaced_schedule.py`；R3 `verify_produce_rules.py`/`check_keypoint_coverage.py`/`check_review_detail.py --profile release_*`。原项目另有 `quality_gate.py` 编排器（未随本 skill 分发）——按上述清单逐条运行并自行汇总报告。
+
 ## 工作流执行模板
 
 ### 阶段一：启动、检索与意图确认

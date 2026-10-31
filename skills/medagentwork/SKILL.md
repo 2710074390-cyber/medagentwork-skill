@@ -109,6 +109,9 @@ cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scrip
   - `references/medmaster.md` — 编排规则与调用指令模板
   - `references/medgen.md` / `medqc.md` / `medfix.md` / `medreview.md` — 各角色执行规则
   - `references/hard-constraints.md` — HC/D/R 硬约束全集（出题质检的规则底座）
+  - `references/quality-gate.md` — **HC-25 全流程质量基准与 R0–R4 阶段门禁**（profile/阈值/豁免规则）
+  - `references/review-detail.md` — **HC-26 复习资料详细度契约**（九槽位/八块/阈值/门禁）
+  - `references/concept-layer.md` — **HC-27 概念标注与概念层**（节点/三类边/C1–C8/概念卡）
   - `references/prompts/` — 五个角色的完整提示词（出题/质检的深度规范）
 
 ## 4. 批次生命周期（编排流程）
@@ -120,8 +123,21 @@ cd <你的工作区> && python -c "import sys; sys.path.insert(0, '{SKILL}/scrip
 5. **GATE-A3**：D20≠0 且 Bloom 偏差≤15%
 6. **MedFix**（读 `references/medfix.md`）：按质检报告逐项修复，输出到 `最终产物/{batchID}/`（含追溯日志 `source_file_synced: true`）
 7. **GATE-A4 + MD 导出**：复检 FAIL==0 后运行 `qbank.py export-md` 生成 `ALL_questions_FIXED.md`（最终交付格式）
-8. **MedReview**（读 `references/medreview.md`；**有教师重点时先读 `references/bpa-v1.md`**）：生成复习资料。**有教师重点/复习大纲输入 → BPA v1.0 强制**：1+7 模块模板 + 八行卡片 + 附录五件套，输出到 `Obsidian产物/教师重点蓝图版/{科目}_教师重点蓝图版_主复习资料.md`（工程副本到 `复习资料/{科目}教师重点版/`）；无教师重点 → 教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`。两种情况都要在交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`
-9. **终审**：`gate_check.py --stage final`（HC-9/10/11 + JSON 完整性）→ **有教师重点输入时加跑 `check_keypoint_coverage.py`（HC-20）** → 用户审查 → 签收置 APPROVED → 用户手动把金标准题移入 `GoldenSet/`（仅用户操作）
+8. **MedReview**（读 `references/medreview.md`；**有教师重点时先读 `references/bpa-v1.md`**）：生成复习资料。**有教师重点/复习大纲输入 → BPA v1.0 强制**：1+7 模块模板 + 八行卡片 + 附录五件套，输出到 `Obsidian产物/教师重点蓝图版/{科目}_教师重点蓝图版_主复习资料.md`（工程副本到 `复习资料/{科目}教师重点版/`）；无教师重点 → 教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`。两种情况都要在交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`；**再自跑 `check_review_detail.py`（HC-26 详细度 · 正式交付必须 PASS）**——掌握级九槽位、模块八块、自测答案覆盖三项缺一即 FAIL，交付物必须是**合并后的单一 MD**（分片只留 `中间产物/`）
+9. **终审**：`gate_check.py --stage final`（HC-9/10/11 + JSON 完整性）→ **有教师重点输入时加跑 `check_keypoint_coverage.py`（HC-20）** → **题库/押题卷批次加跑 `check_source_concepts.py`（HC-27 概念标注，schema 2.1）**；有 KC 注册表时加跑 `check_concept_graph.py`（概念图 C1–C8）→ 用户审查 → 签收置 APPROVED → 用户手动把金标准题移入 `GoldenSet/`（仅用户操作）
+
+### 4.1 阶段门禁与质量基准（HC-25）
+
+新批次/新版本按 **R0 需求评审 → R1 开发实现 → R2 测试验证 → R3 发布上线 → R4 运行复盘** 推进，每阶段必须有显式结论（PASS / WARN / BLOCKED / SKIPPED，**SKIPPED ≠ PASS**），报告落 `reports/gate/`。阈值唯一来源 `{SKILL}/scripts/quality_policy.json`；完整规范见 `references/quality-gate.md`。
+
+| 阶段 | 本 skill 可跑的门禁 |
+|---|---|
+| R1 | `contract_check.py`、`ingest.py`（契约可解析） |
+| R2 | `validate_options.py`、`gate_check.py`、`bloom_sampler.py`、`check_learning_value.py`、`check_source_concepts.py`、`check_concept_graph.py`、`check_review_detail.py`、`spaced_schedule.py` |
+| R3 | `verify_produce_rules.py`、`check_keypoint_coverage.py`、`check_review_detail.py --profile release_*` |
+| R4 | 学习结果回收与复盘记录（人工） |
+
+只允许 WARN 豁免；同一问题连续两版 WARN 自动升级 BLOCKED；R3 `enforce` BLOCKED 禁止交付。
 
 ## 5. 门禁命令速查
 
@@ -153,6 +169,25 @@ python {SKILL}/scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_
 
 # 教师重点原文锚定（HC-20 / D0 · 有教师重点或复习大纲输入的批次，门禁A5 与终审前各跑一次）
 python {SKILL}/scripts/check_keypoint_coverage.py --keypoints 输入素材/{科目}/{科目}_教师重点_*.md --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md   # 数值/时间窗类硬事实缺失或重点条目缺落点 → exit 1（返工）；无教师重点输入 → SKIPPED（退出码 2，不视为通过）
+
+# 复习资料详细度（HC-26 · 正式交付必须 PASS；模块版用 --mode module，课程安排版用 --mode course_schedule）
+python {SKILL}/scripts/check_review_detail.py --md 复习资料/{科目}教师重点版/{科目}教师重点版_主复习资料.md --mode auto --profile release_teacher_keypoint --json-out reports/validate/review_detail_{科目}.json --md-out reports/validate/review_detail_{科目}.md
+
+# 题目学习价值层（HC-24 · schema_version=2.0 批次）
+python {SKILL}/scripts/check_learning_value.py --file 最终产物/{batchID}/ALL_questions_FIXED.json   # FAIL>0 不得交付
+
+# 生成期概念标注（HC-27 · schema_version=2.1 批次；旧批次返回 SKIP）
+python {SKILL}/scripts/check_source_concepts.py --file 最终产物/{batchID}/ALL_questions_FIXED.json --batch {batchID}
+
+# 概念层（需 KC 注册表；建图 → 标注 → 门禁 → 概念卡）
+python {SKILL}/scripts/build_concept_graph.py --out question_bank/concept_graph.json
+python {SKILL}/scripts/label_concepts.py --subject {科目}
+python {SKILL}/scripts/check_concept_graph.py --subject {科目}          # C1–C8；--strict 让 WARN 也非零退出
+python {SKILL}/scripts/build_concept_cards.py --subject {学科全称}
+
+# 质量基准（HC-25 阈值单一事实来源）
+python {SKILL}/scripts/quality_policy.py --show release_teacher_keypoint
+python {SKILL}/scripts/quality_policy.py --validate
 
 # MD 导出（最终交付格式）
 python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batchID}/ALL_questions_FIXED.json --out 最终产物/{batchID}/ALL_questions_FIXED.md --title "{科目}·{模块}（{batchID}）"
@@ -204,8 +239,10 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 ## 7. 关键设计（为什么这样做）
 
 - **门禁即防线**：LLM 自检不可信，一切质量判定交给确定性脚本（5 起管线绕过教训的结论）
-- **教训入库**：`regression_db.json`（回归漏洞库）+ `references/hard-constraints.md`（HC-0~HC-20 硬约束）——每次事故都沉淀为可机械执行的规则
+- **教训入库**：`regression_db.json`（回归漏洞库）+ `references/hard-constraints.md`（HC-0~HC-27 硬约束）——每次事故都沉淀为可机械执行的规则
 - **原文锚定优于概括（HC-20）**：教师重点/复习大纲原文是权威范围契约（优先级高于上游备考资料），条目数值/时间窗/界值/并列与禁止结构须以原文字面落在 `📌 重点原文（第X条）：` 落点行内，并由 `check_keypoint_coverage.py` 机械化核验——堵住"概括那一步丢信息"这一根因
+- **详细度不是字数（HC-26）**：单靠"写长"会得到又长又空的资料。把"读者能否独立完成临床推理"拆成九个固定槽位 + 模块八块，用 `check_review_detail.py` 量化"槽位完整 / 信息单元密度 / 自测可检索"，从根上替换"字数=质量"的直觉
+- **多标签必须是生成期属性（HC-27）**：事后从解析文本推断第二概念，在"一题一锚点"题库上封顶约 5%——要提升只能改出题契约（`concepts[]`），不能事后造边。概念层每条边都要带 evidence，**宁可图稀疏，不可图失信**
 - **Bloom 配额**：认知分层目标 30/40/25/5，实时采样防「记忆层超标」
 - **结构模板优于字数约束**：选项长度靠「每题选项共享相同语法结构」而非 min/max 字数（3 次振荡教训）
 - **NBME 反套路**：R10 词重复线索 / R11 收敛策略 / R2 长度比等机械化检测，防 LLM 出题的隐性泄题
@@ -245,6 +282,9 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 | 跨工作区运维（maintenance/healthcheck） | 不含（原项目专属运维） |
 | 组卷器（paper_builder.py）与难度校准数据 | 不含（依赖用户自备真题；`pipeline.yaml` 中仅留设计说明） |
 | `pipeline.yaml` 中的 RAG / 运维脚本声明 | 已清理（v2.1）：移除未分发的 `chunk_size/top_n/hybrid_search` 与 `runbook.patterns` 脚本引用，改为只声明真实存在的能力 |
+| 站点发布与最新性校验（HC-21） | **不含**：无部署脚本、无 `check_site_freshness.py`。规则以"三道闸 + 文案与数据同源"形式写在 `references/hard-constraints.md`，供自建发布通道时执行 |
+| 真题语料工程与双族配额（HC-22 / HC-23） | **规则保留，工具与语料不含**：`real_question_cli.py` 与 OCR/解析流水线依赖用户自备真题扫描册；无真题时走 HC-18 降级（`--golden-absent`）并在报告留痕 |
+| R0–R4 编排器 `quality_gate.py` | **不含**：编排器依赖项目侧多个未分发检查器。本 skill 提供 `quality_policy.json`（阈值单一事实来源）与各单项门禁脚本，按 `references/quality-gate.md` 的阶段-脚本映射逐条运行、自行汇总报告 |
 
 ## Boundaries
 

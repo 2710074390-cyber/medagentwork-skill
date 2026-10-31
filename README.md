@@ -240,14 +240,27 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
     │   ├── medqc.md         #   质检阶段执行规则
     │   ├── medfix.md        #   修复阶段执行规则
     │   ├── medreview.md     #   复习资料成册执行规则
-    │   ├── hard-constraints.md  #   HC/D/R 硬约束全集（教训库）
+    │   ├── hard-constraints.md  #   HC/D/R 硬约束全集（HC-0 ~ HC-27 教训库）
+    │   ├── quality-gate.md  #   HC-25 全流程质量基准与 R0–R4 阶段门禁
+    │   ├── review-detail.md #   HC-26 复习资料详细度契约（九槽位/八块/阈值）
+    │   ├── concept-layer.md #   HC-27 概念标注与概念层（节点/三类边/C1–C8/概念卡）
+    │   ├── bpa-v1.md        #   教师重点蓝图版（BPA v1.0）生成规则
     │   └── prompts/         #   五个角色的完整提示词（路径已清洗为分享版）
     ├── scripts/             # 全部门禁/状态/渲染脚本（纯标准库）
     │   ├── pipeline_config.py        #   pipeline.yaml 阈值运行时加载器（单一事实来源）
+    │   ├── quality_policy.py/.json   #   HC-25 阈值与 profile 单一事实来源
     │   ├── check_keypoint_coverage.py #  教师重点覆盖门禁（HC-20：硬事实原样核验 + 落点行）
+    │   ├── check_review_detail.py    #   复习资料详细度门禁（HC-26：九槽位 + 模块八块 + 自测对账）
+    │   ├── check_learning_value.py   #   题目学习价值门禁（HC-24：逐项覆盖/错误认知/引文实证）
+    │   ├── check_source_concepts.py  #   生成期概念标注门禁（HC-27：S1–S6）
+    │   ├── build_concept_graph.py    #   概念图建图（从 display_id 修模块 + 页序/模块前置边）
+    │   ├── label_concepts.py         #   一题多概念标注（三信号，带 evidence）
+    │   ├── check_concept_graph.py    #   概念图门禁（C1–C8）
+    │   ├── build_concept_cards.py    #   Obsidian 概念卡 + 索引 + MOC 回链
+    │   ├── spaced_schedule.py        #   复习卡片/间隔调度 + 自测答案对账
     │   ├── telemetry.py              #   JSONL 事件日志（可观测性，best-effort）
     │   └── validate/                 #   R1-R13 校验规则引擎
-    ├── schemas/             # agent2/3/4 产物契约
+    ├── schemas/             # agent2/3/4 产物契约 + review_detail / kc 契约
     ├── assets/              # 押题卷 HTML 模板、成品页模板、金标准模板
     └── pipeline.yaml        # 声明式管线配置（阶段/门禁/SLO/thresholds）
 ```
@@ -278,11 +291,26 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 
 ## 变更记录
 
-见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.2**（v2.1 依据《medagentwork-skill 仓库评审报告》完成 P1/P2 缺陷修复与 5 项中期结构性改进；v2.2 移除全部插图相关功能）。
+见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.3**。
 
-`[Unreleased]` 段为**已对齐原项目最新规则**的未发布变更：**HC-20 教师重点原文锚定**
-（新增 `scripts/check_keypoint_coverage.py` 门禁 + 规则/提示词全链路落地）、**押题卷交付形态改 MD**、
-`qbank.py` v1.3（非活动条目降级）、门禁输入字段形状契约。
+- **v2.3（2026-10-31）**：对齐原项目 10-23 ~ 10-31 的规则线——**HC-25 全流程质量基准**
+  （R0–R4 阶段门禁 + `quality_policy.json` 阈值单一事实来源）、**HC-26 复习资料详细度**
+  （九槽位 + 模块八块 + 自测对账，新增 `check_review_detail.py`）、**HC-27 概念层**
+  （概念图 / 标注 / C1–C8 门禁 / Obsidian 概念卡，新增 5 个脚本）、**HC-22 真题双族配额**，
+  并补齐此前被引用但未分发的 `check_learning_value.py`。
+- **v2.2（2026-09-21）**：移除全部插图相关功能。
+- **v2.1（2026-09-12）**：依据仓库评审报告完成 P1/P2 缺陷修复与 5 项中期结构性改进。
+
+## 与原版的差异
+
+| 原版特性 | skill 版处理 |
+|---|---|
+| RAG 知识库检索（向量+重排序） | 缩减：直接读素材文件；检索增强由宿主 agent 自行接入 |
+| 插图管线（图谱复用 / AI 底图 / 中文标注 / WebP） | **v2.2 起整体移除**；需要请使用 [v2.1](https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.1)（插图终版） |
+| 考研/执业医师真题库内容（HC-22 / HC-23） | 规则保留，`real_question_cli.py` 与 OCR/解析流水线**不含**（依赖用户自备真题扫描册）；无真题走 HC-18 降级 |
+| 站点发布与最新性校验（HC-21） | **不含**：无部署脚本、无 `check_site_freshness.py`；规则以"三道闸 + 文案与数据同源"写在硬约束里 |
+| R0–R4 编排器 `quality_gate.py` | **不含**：依赖项目侧多个未分发检查器。本 skill 提供阈值单一事实来源与各单项门禁，按 `references/quality-gate.md` 的阶段-脚本映射逐条运行 |
+| Cloudflare 站点部署 / MedKit 桌面生成器 | 不含（与管线无关） |
 
 ## 使用约定
 

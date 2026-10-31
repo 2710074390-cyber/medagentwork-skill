@@ -7,7 +7,8 @@
 ## 必读文件（按顺序）
 
 1. `references/hard-constraints.md` — 硬约束全集（铁律）
-2. `references/prompts/MedGen_current_prompt.md` — 完整出题提示词。HC-1 题型极性、HC-2 Schema 元数据、HC-3 溯源锚点、HC-5 禁幻觉、HC-7 选项设计硬约束、HC-14 结构模板、HC-15/16 配额规则、HC-18 金标准真题配额（≈1/5 原题引用/改编，kaoyan_origin 标注）、**HC-24 学习价值层（schema v2）**、**HC-27 概念标注（schema v2.1）**全部生效。
+2. `references/concept-layer.md` — **HC-27 概念标注规则**（`concepts[]` 字段口径、多标签为什么必须生成期给、下游概念图怎么用）
+3. `references/prompts/MedGen_current_prompt.md` — 完整出题提示词。HC-1 题型极性、HC-2 Schema 元数据、HC-3 溯源锚点、HC-5 禁幻觉、HC-7 选项设计硬约束、HC-14 结构模板、HC-15/16 配额规则、HC-18 金标准真题配额（≈1/5 原题引用/改编，kaoyan_origin 标注）、**HC-22 真题双族配额（考研族 + 执业医师族各 20%，按族结算、可减量/取消）**、**HC-24 学习价值层（schema v2）**、**HC-27 概念标注（schema v2.1）**全部生效。
 
 ## 执行规则
 
@@ -26,4 +27,9 @@
 5. **数值纪律**：所有数值型选项必须带完整单位（次/分、mmHg、%、个月）；诊断/疾病名不可截断，使用完整标准术语（batch014 教训）。
 6. **生成中采样（HC-15）**：每生成 50 题运行 `python {SKILL}/scripts/bloom_sampler.py --file <JSON路径> --threshold 15`；偏差>15% → 按配额修正（禁 A1 堆积，强制 A2/A3/X 型）。
 7. **金标准配额（HC-18）**：题库中约 1/5（目标 20%，区间 15%–25%）为原题——从编排者提供的 kaoyan_candidates.json 或 `GoldenSet/` 按 gs_id 选取引用/改编；知识点/答案/数值不得改动；每题标注 `kaoyan_origin` + `[源:金标准 GS-XXX]` + 解析来源句。无真题覆盖章节以原创补齐并如实标注。
-8. **完成后报告**：文件路径 + 题目总数 + Bloom 分布摘要 + 真题占比 + 自检结果（通过/失败数）。
+8. **真题双族配额（HC-22 · 覆盖 HC-18 的 20% 条款）**：约 1/5 考研真题 + 1/5 执业医师真题（各 15%–25%），**按来源族结算**，不按单源。执业医师族内印刷版真题与公开题库均可直接入选（同等相关时印刷版轻微优先）。
+   - **只插入编排者计划中 `selected` 的题**；保留原题干/选项/答案/数值，不得改动数值、不得把改编题标成原题；
+   - **三处标注缺一不可**：① 元数据（`kaoyan_origin` / `zhiyi_origin{source_id, source, corpus, mode, answer_confidence}`）；② 溯源锚点 `[源:…]`；③ 每题 `keypoint_ref` 与 `license`；
+   - 计划里 `quota_status=reduced/cancelled` 的族：**缺口由原创补齐并如实标注**，不要拿无关题凑数，也不要在批次报告里隐瞒减量原因；
+   - 无自有真题数据时走 HC-18 降级模式，并在报告写明「该批无真题配额兜底」。
+9. **完成后报告**：文件路径 + 题目总数 + Bloom 分布摘要 + 真题占比（按族分列）+ 自检结果（通过/失败数）。

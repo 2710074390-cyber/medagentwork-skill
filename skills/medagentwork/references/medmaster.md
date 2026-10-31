@@ -8,8 +8,9 @@
 
 1. `references/runbook.md` — 批次生命周期、门禁命令、目录规范
 2. `references/hard-constraints.md` — 共享硬约束 HC-* 与门禁规则
-3. `references/prompts/MedMaster_current_prompt.md` — 你的完整角色提示词（HC-0~HC-11、HC-18 配额编排、工作流状态机、调用指令模板全部生效）
-4. 工作区 `docs/TODO.md` 与 `memory/FACT.md`（若存在）— 当前待办与历史教训
+3. `references/quality-gate.md` — **HC-25 R0–R4 阶段门禁、profile 与阈值、豁免规则**（每批次按此推进并留报告）
+4. `references/prompts/MedMaster_current_prompt.md` — 你的完整角色提示词（HC-0~HC-11、HC-18/HC-22 配额编排、HC-25 阶段门禁、工作流状态机、调用指令模板全部生效）
+5. 工作区 `docs/TODO.md` 与 `memory/FACT.md`（若存在）— 当前待办与历史教训
 
 ## 编排规则
 
@@ -20,8 +21,9 @@
    - **输入文件路径**（不是粘贴内容）
    - **输出文件路径**约定
    - **【金标准配额】小节**（HC-18）：目标题数、真题候选文件路径、无真题覆盖章节清单
-3. **门禁强制（HC-12 Orchestrator-as-Enforcer）**：每个阶段转换前必须实际运行门禁命令（见 `references/runbook.md` 第 3 节），FAIL/BLOCKED → halt → 回退上游修复，**不可跳过**（5 起管线绕过教训）。终审前加跑 `kaoyan_picker.py check`（HC-18，exit 1 → 核对覆盖情况后处理）。**有教师重点/复习大纲输入的批次：门禁A5 与终审前加跑 `python {SKILL}/scripts/check_keypoint_coverage.py --keypoints <教师重点原文> --md <主复习资料 MD>`（HC-20/D0 教师重点原文锚定，exit 1 → 回退 Agent 5 补写被概括丢失的数值/时间窗；无教师重点输入 → SKIPPED，不视为通过）**。
-4. **文件传递与核对**：下游角色完成后读取核对产物（JSON 可解析、必填字段齐全），再把路径传给下一角色。
-5. **签收**：用户签收后批次置 APPROVED；GoldenSet 只允许用户手动移入，任何角色不得写入。
-6. **会话卫生**：每批次建议独立会话；批次关键事件记入 `memory/JOURNAL.jsonl`（UTF-8 JSONL，一行一条）。
-7. **检索增强（可选）**：原版接入 RAG 知识库检索；skill 版默认直接读 `输入素材/` 文件，宿主 agent 自带搜索/检索能力时可按 `references/prompts/` 中的检索规范接入。
+3. **门禁强制（HC-12 Orchestrator-as-Enforcer）**：每个阶段转换前必须实际运行门禁命令（见 `references/runbook.md` 第 3 节），FAIL/BLOCKED → halt → 回退上游修复，**不可跳过**（5 起管线绕过教训）。终审前加跑 `kaoyan_picker.py check`（HC-18，exit 1 → 核对覆盖情况后处理）。**有教师重点/复习大纲输入的批次：门禁A5 与终审前加跑 `python {SKILL}/scripts/check_keypoint_coverage.py --keypoints <教师重点原文> --md <主复习资料 MD>`（HC-20/D0 教师重点原文锚定，exit 1 → 回退 Agent 5 补写被概括丢失的数值/时间窗；无教师重点输入 → SKIPPED，不视为通过）**。**复习资料交付前加跑 `check_review_detail.py`（HC-26，enforce FAIL 阻断）**；**题库/押题卷批次加跑 `check_source_concepts.py`（HC-27）与 `check_learning_value.py`（HC-24）**。
+4. **阶段化推进（HC-25）**：新批次/新版本按 R0 需求评审 → R1 开发实现 → R2 测试验证 → R3 发布上线 → R4 运行复盘推进，每阶段在 `reports/gate/` 留 PASS/WARN/BLOCKED/SKIPPED 报告。**SKIPPED ≠ PASS**；R2 未过不得进 R3；只允许 WARN 豁免（写明理由/影响/补做/责任人），同一问题连续两版 WARN 自动升级 BLOCKED。阈值以 `{SKILL}/scripts/quality_policy.json` 为唯一事实来源。
+5. **文件传递与核对**：下游角色完成后读取核对产物（JSON 可解析、必填字段齐全），再把路径传给下一角色。
+6. **签收**：用户签收后批次置 APPROVED；GoldenSet 只允许用户手动移入，任何角色不得写入。
+7. **会话卫生**：每批次建议独立会话；批次关键事件记入 `memory/JOURNAL.jsonl`（UTF-8 JSONL，一行一条）。
+8. **检索增强（可选）**：原版接入 RAG 知识库检索；skill 版默认直接读 `输入素材/` 文件，宿主 agent 自带搜索/检索能力时可按 `references/prompts/` 中的检索规范接入。
