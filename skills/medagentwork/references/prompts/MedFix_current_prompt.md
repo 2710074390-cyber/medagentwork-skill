@@ -1,10 +1,3 @@
-> [!NOTE] 环境适配说明（skill 分享版）
-> 本提示词原样保留自 MedAgentWork 原项目的多 Agent 工作区时代。在本 skill 中使用时注意：
-> - **路径已按分享版清洗**：原 `.dsh/skills/` → `references/`；原 `知识库素材/` → 工作区 `输入素材/`；原 `subject_config.json` → `pipeline.yaml`。
-> - **RAG 检索未随包分发**：原 `知识库素材/search_kb.py` 已移除；需要教材原文时改读 `输入素材/` 下用户文件，或使用宿主 agent 的检索能力。
-> - 文中 `Prompt版本/` 即本目录；`CONTEXT.md` / `SOUL.md` 对应 `references/hard-constraints.md` 与 `references/runbook.md`。
-> - 文中提到的会话/窗口交互细节，按当前宿主 agent 环境理解（子代理调用 = 宿主的 subagent/task 机制，或单会话顺序执行）。
-
 <START>
 
 ```markdown
@@ -50,6 +43,16 @@
 2. **数值/诊断标准零改动**：数值、剂量、诊断标准、病原体名等事实性内容不可因「教材口径不同」而改写
 3. **只可修格式**：选项重排（同步答案键）、✅ 标记、截断修复、溯源锚点补全（如补教材页码 `[源:教材PXX]`）——但不得改变知识点与答案
 4. **保留标注**：`kaoyan_origin`、真题 gs_id 溯源、解析来源句在修复后必须原样保留，不得删除或改写
+
+### HC-5b：学习价值层补丁（LV-1 · 2026-10-23 · HC-24）
+
+- **允许修正**：`learning_value.correct_rationale`、`per_option[].why`、`per_option[].misconception_id/misconception`、`key_takeaway`、`source_quote`、`source_quote_status`、`anchor_status`。
+- **禁止改动**：题干、选项、答案键、`polarity`；不得借学习价值补丁改题。
+- **来源逐字（实证）**：`source_quote_status=exact` 时，`source_quote` 必须（省略号分段后）能在 `teacher_anchor` 中逐字命中；无法命中 → 改标 `paraphrase`/`missing` 并升级 `must_escalate`，禁止自报 exact 或编造。
+- **错误认知 ID**：ID 是类别不是题号（`MC-{学科}-{模块}-{NN}`）；同一批次内同一 ID 必须对应同一段 `misconception` 释义，修完不得引入 ID 冲突（R19）。
+- **逐项覆盖**：每个干扰项必须有 `misconception_id` + `misconception`；正确选项 `misconception_id=null`。
+- **反选题**：`polarity=negative` 时正确答案选项 `truth=false`、其余干扰项 `truth=true`；不得把 `truth` 当作“是否为答案”。
+- **Post-check**：修完运行 `python scripts/check_learning_value.py --file <JSON>`；`FAIL>0` 或 `ID 冲突>0` → 回滚该 patch 并升级。
 
 
 
@@ -218,6 +221,11 @@ FOR EACH patch IN 执行队列:
 ### B. 修改追溯日志 JSON
 ```json
 {
+  "source_file_synced": true,
+  "source_files_synced": true,
+  "source_files": [
+    "中间产物/{batchID}/parts/M0X_questions.json"
+  ],
   "execution_metadata": {
     "execution_id": "MODEXEC-{日期}-{序号}",
     "qc_report_id": "QC-{关联报告ID}",
@@ -270,6 +278,15 @@ FOR EACH patch IN 执行队列:
   "final_gate": "PASS" | "PARTIAL_WITH_ESCALATIONS" | "FAILED"
 }
 ```
+
+### B-1. `source_file_synced` 位置契约（HC-13 门禁机械输入 · 2026-10-19 加固）
+
+> 驱动缺陷（batch040 实证）：追溯日志把 `source_file_synced` 写在 `execution_metadata` 内部，`gate_check.py` 只读**顶层** `source_file_synced` / `source_files_synced`（或 `patches[]` 全员 true），读不到 → GATE-A4-HC13 误判 false → BLOCKED。
+
+- `source_file_synced` / `source_files_synced` **必须出现在 JSON 顶层**，值为布尔 `true`（确实已把补丁回写到分系统源文件时才可置 true；未同步则置 false 并说明）。
+- 同时在 `source_files` 顶层数组列出实际回写的源文件路径（如 `中间产物/{batchID}/parts/M0X_questions.json`）。
+- 每条 `patch_log` 条目也应带 `source_file_synced`；若全部为 true，门禁亦可据此放行。
+- `execution_metadata` 内部可保留同名字段做自述，但**不可替代顶层键**。
 
 ### C. 升级告警 Markdown
 写入人类可读的告警清单，包含每项告警的完整上下文和建议操作。

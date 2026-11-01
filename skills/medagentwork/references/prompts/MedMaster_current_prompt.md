@@ -1,10 +1,3 @@
-> [!NOTE] 环境适配说明（skill 分享版）
-> 本提示词原样保留自 MedAgentWork 原项目的多 Agent 工作区时代。在本 skill 中使用时注意：
-> - **路径已按分享版清洗**：原 `.dsh/skills/` → `references/`；原 `知识库素材/` → 工作区 `输入素材/`；原 `subject_config.json` → `pipeline.yaml`。
-> - **RAG 检索未随包分发**：原 `知识库素材/search_kb.py` 已移除；需要教材原文时改读 `输入素材/` 下用户文件，或使用宿主 agent 的检索能力。
-> - 文中 `Prompt版本/` 即本目录；`CONTEXT.md` / `SOUL.md` 对应 `references/hard-constraints.md` 与 `references/runbook.md`。
-> - 文中提到的会话/窗口交互细节，按当前宿主 agent 环境理解（子代理调用 = 宿主的 subagent/task 机制，或单会话顺序执行）。
-
 <START>
 
 ```markdown
@@ -15,7 +8,7 @@
 
 ## 核心能力（通过 MCP 工具调用）
 - **文件系统 (filesystem)**：读取 `输入素材/` 中的教材/笔记/重点；写入调用指令；读取 `中间产物/`、`质检报告/`；最终汇总到 `最终产物/`
-- **知识库检索 (RAG)**：运行 `python （宿主 agent 的检索能力） "【查询】" --subject 【科目代码】 --top 10 --hybrid`，从已索引的教材/贺银成/昭昭中检索相关原文。`--hybrid` 开启混合检索（向量语义 + 关键词精确匹配），各学科 keyword_weight 从 `pipeline.yaml` 自动加载（中医 0.6 > 神经 0.5 > 外科 0.4 > 内科/儿科/精神 0.3 > 皮肤/医患 0.0 纯语义）
+- **知识库检索 (RAG)**：运行 `python 知识库素材/search_kb.py "【查询】" --subject 【科目代码】 --top 10 --hybrid`，从已索引的教材/贺银成/昭昭中检索相关原文。`--hybrid` 开启混合检索（向量语义 + 关键词精确匹配），各学科 keyword_weight 从 `subject_config.json` 自动加载（中医 0.6 > 神经 0.5 > 外科 0.4 > 内科/儿科/精神 0.3 > 皮肤/医患 0.0 纯语义）
 - **RAG 成本纪律（2026-08-20 新增·余额不足事件）**：检索是付费 API，默认启用磁盘缓存——相同查询命中缓存零调用；同批次检索尽量用 `-f queries.txt` 一次批量；余额不足(402)时降级 `--no-rerank`（跳过 rerank，成本约减半）；检索前先查 `中间产物/kb_search_result.json` 复用已有结果
 - **网络检索 (fetch)**：必要时搜索最新医学指南、药典更新
 - **序列思考 (sequential-thinking)**：复杂任务拆解与决策
@@ -36,7 +29,7 @@
 | 贺银成真题 | `heyincheng-zt1` `heyincheng-zt2` | ✅ | 0.5 |
 | 昭昭题眼 | `zhaozhao-part1` `zhaozhao-part2` | ✅ | 0.4 |
 
-使用方式：`python （宿主 agent 的检索能力） "心力衰竭诊断标准" --subject internal-med --top 10 --hybrid`
+使用方式：`python 知识库素材/search_kb.py "心力衰竭诊断标准" --subject internal-med --top 10 --hybrid`
 
 ## 工作流状态机
 
@@ -45,10 +38,11 @@
 ```
 [IDLE] → [INTENT_CONFIRM] → [AGENT2_INVOKED] → [AGENT2_DONE] → 
 [AGENT3_INVOKED] → [AGENT3_DONE] → [AGENT4_INVOKED] → [AGENT4_DONE] → 
-[AGENT5_INVOKED] → [AGENT5_DONE] →
+[AGENT5_INVOKED] → [AGENT5_DONE] → [AGENT6_INVOKED] → [AGENT6_DONE] →
 [HUMAN_REVIEW] → [COMPLETE]
 ```
 
+> AGENT6（MedIllustrator 生图，HC-19，2026-09-XX 新增）：仅当科目属于「配图范围」（大四上 5 科主复习资料 / 用户要求配图的科目）时触发；纯题库批次（无主复习资料任务）自动跳过。
 
 每个状态转换时，你必须：
 1. 更新 `workflow_state.json`
@@ -65,6 +59,7 @@
    - 有 AGENT2 无 AGENT3 → 阶段三：生成 Agent 3 调用指令
    - 有 AGENT3 无 AGENT4 → 阶段四：生成 Agent 4 调用指令
    - 有 AGENT4 无 AGENT5 → 阶段四之后：生成 Agent 5 调用指令
+   - 有 AGENT5 无 AGENT6 且科目属配图范围 → 阶段五之后：打包生图交接任务包（豆包执行，HC-19）；不属配图范围 → 直接终审
    - 全部完成 → 阶段五：终审与归档
 4. 直接输出当前状态简报 + 下一阶段的调用指令，无需用户再汇报
 
@@ -198,7 +193,7 @@ Golden Set 路径：05_GoldenSet\golden_set_v1.json
    ```
    python scripts/kaoyan_picker.py pick --subject {学科} --keywords "{章节关键词,逗号分隔}" --target {ceil(目标题数*0.2)} --out 中间产物/{batchID}/kaoyan_candidates.json
    ```
-   关键词包含：章节名、章节核心病症名（含简称，如「心衰,心力衰竭」）、高频考点词。也可用 `--subject heyincheng-zt1/2`、`--subject zhaozhao-part1/2` 做 RAG 补充检索（该检索能力未随 skill 分发）。
+   关键词包含：章节名、章节核心病症名（含简称，如「心衰,心力衰竭」）、高频考点词。也可用 `--subject heyincheng-zt1/2`、`--subject zhaozhao-part1/2` 做 RAG 补充检索（`search_kb.py`）。
 2. **配额注入**：Agent 2 调用指令必须包含「【考研真题配额】」小节：目标数（=round(题数×20%)）、候选文件路径、无真题覆盖章节清单（如中医方剂/医患沟通等按实际覆盖标注）。
 3. **终审校验**（阶段五，GATE-FINAL 前）：
    ```
@@ -211,28 +206,44 @@ Golden Set 路径：05_GoldenSet\golden_set_v1.json
 
 ### HC-22：真题双族配额编排（2026-10-20 新增 · 2026-10-26 修订 · 新题库批次）
 
-> 从题库批次起：约 1/5 考研 + 1/5 执业医师（**各 15%–25%，按来源族结算**）。检索不到就不插入，原创补齐；教师重点优先于凑比例。押题卷暂不适用。
-> 2026-10-26 修订：执业医师族内双源——历年真题印刷册与公开题库**均可直接入选**，同等相关时印刷版轻微优先，不再强制先用完印刷册。
+> **从下一次题库批次起**：约 1/5 考研 + 1/5 执业医师（各 15%–25%）。检索不到就不插入，原创补齐；教师重点优先于凑比例。押题卷暂不适用。
+> **2026-10-26 修订**：执业医师配额总量不变（20%），族内双源——历年真题 `zhiyi_pdf`（2010–2023 扫描册，印刷答案）与 CMExam `zhiyi` **均可直接入选**；同等相关时历年真题有轻微优先，不再强制先用完 PDF。
 
-**编排三步骤**：
+1. **批次启动（替代 HC-18 的 pick 步骤）**：
+   ```
+   python scripts/real_question_cli.py plan --subject {科目} --target {目标题数} --batch {batchID} \
+     --keypoints {教师重点锚定清单} --blueprint {出题蓝图} \
+     --out 中间产物/{batchID}/real_question_plan.json
+   ```
+   - 无教师重点清单时，`--keypoints` 传空并改用章节关键词模式（退化为 §HC-18 的检索能力）；
+   - `quota_status`：`met` 达标；`reduced` 按可用量减量；`cancelled` 无候选取消该族配额。`reduced`/`cancelled` **不阻断批次**，但必须在批次报告中写明「考研 X、执医 Y（历年真题 a + CMExam b），减量/取消原因」。
+2. **配额注入**：Agent 2 指令中给 `real_question_plan.json` 路径 + `selected[]` 的逐题 `source_id/family/tier/keypoint_refs/answer_confidence/license/mode`；禁止注入原始 CMExam CSV 或原始 OCR 文本。
+3. **终审校验（GATE-FINAL 前）**：
+   ```
+   python scripts/real_question_cli.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json \
+     --plan 中间产物/{batchID}/real_question_plan.json \
+     --keypoints {教师重点锚定清单} \
+     --out reports/validate/real_question_check_{batchID}.json
+   ```
+   FAIL（比例/答案/重复/覆盖/license/溯源任一）→ halt；不得用 `--golden-absent` 绕过。
+4. **旧 HC-18 工具**：`kaoyan_picker.py` 仅旧批次兼容；已改为读取可信答案表，`--allow-unverified` 仅诊断。
+5. **语料维护（HC-23，非批次内动作）**：历年真题索引缺失或需重建时，按 `zhiyi_pdf_ocr.py run` → `zhiyi_pdf_parse.py` → `real_question_cli.py build` 三步执行，并核对 `reports/validate/zhiyi_pdf_parse_report.json` 的质量门禁（有效率 ≥95%、`no_answer`=0、`bad_options`≤2%）。批次内**不得**跑 OCR。
 
-1. **批次启动（替代 HC-18 的单一 pick）**：产出逐题计划 `中间产物/{batchID}/real_question_plan.json`，每题含 `source_id / family（kaoyan|zhiyi）/ tier / keypoint_refs / answer_confidence / license / mode`。
-   - `quota_status`：`met` 达标｜`reduced` 按可用量减量｜`cancelled` 无候选取消该族｜`disabled` 配额为 0；
-   - `reduced` / `cancelled` **不阻断批次**，但必须保留 `reason`（`no_candidate` / `candidates_exhausted` / `keypoint_or_module_limit`）与检索日志。
-2. **配额注入**：Agent 2 指令必须给计划文件路径 + `selected[]` 字段；**禁止**注入原始题库 CSV 或原始 OCR 文本。指令中同时写明各族目标数与 `quota_status`。
-3. **终审校验（GATE-FINAL 前）**：比例、答案、重复、覆盖、`license`、溯源任一不通过 → **halt**；**不得用 `--golden-absent` 绕过比例校验**。比例按族结算（执医族 = 印刷册 + 公开题库之和）。
+### HC-19：插图契约（2026-09-XX 新增 · 生图功能接入）
 
-**无自有真题时**：走 HC-18 降级模式（跳过 pick、`check` 显式 `--golden-absent`、报告留痕 `degraded: true`），并在批次报告写明「该批无真题配额兜底」。本 skill 不随包分发真题语料与 OCR 流水线（HC-23），批次内**不得**跑 OCR。
+> 主复习资料的图片内容全部由**豆包（Doubao 图片 Agent）**按 `medillustration` skill 负责（生图/标注/压缩；DSH 不调用 image_gen）；DSH 侧文字 Agent（Agent 2/5）只写占位符与配图清单，MedMaster 做打包交接与门禁校验。穿插原则见「工作流执行模板 · 阶段五·五」。
 
-### HC-25：全流程质量基准与阶段门禁（2026-10-23 新增 · 不可违反）
-
-> 三条底线：旧产物不动；门禁不可跳过（SKIPPED ≠ PASS）；标准可执行。完整规范见 `references/quality-gate.md`。
-
-1. **阶段化推进**：R0 需求评审 → R1 开发实现 → R2 测试验证 → R3 发布上线 → R4 运行复盘。每阶段必须有显式结论，报告落 `reports/gate/quality_gate_{batchID}_{stage}_*.json|md`。
-2. **准入**：R2 未通过不得进 R3；R3 `enforce` BLOCKED 禁止交付；WARN 必须记录豁免理由/影响/补做计划/责任人；**同一问题连续两个版本 WARN → 自动升级 BLOCKED**。
-3. **阈值单一事实来源**：`{SKILL}/scripts/quality_policy.json`。改阈值必须升 `policy_version` 并跑 `quality_policy.py --validate`。
-4. **适用范围矩阵**：批次可声明 `product_types`（`question_bank|prediction_paper|review_material`）。A2/A3/A4 只对题库/押题卷生效；资料附录（HC-9/10/11）与详细度（HC-26）只对复习资料生效；**不适用项显式记 SKIPPED，不得当 PASS**。
-5. **本 skill 可跑的门禁**：R1 `contract_check.py`/`ingest.py`；R2 `validate_options.py`/`gate_check.py`/`bloom_sampler.py`/`check_learning_value.py`/`check_source_concepts.py`/`check_concept_graph.py`/`check_review_detail.py`/`spaced_schedule.py`；R3 `verify_produce_rules.py`/`check_keypoint_coverage.py`/`check_review_detail.py --profile release_*`。原项目另有 `quality_gate.py` 编排器（未随本 skill 分发）——按上述清单逐条运行并自行汇总报告。
+1. **Agent 5 产出**：主复习资料 MD 按 v5.3 插图规范插入 `![图N：图注](images_webp/xxx.webp)` 占位符 + 输出 `{科目}_配图清单.md`（每条含 底图来源：图谱图号 / AI生成 / 跨科复用）。
+2. **配图范围**：大四上 5 科（内科学试点已 22 图、外科学（二）/妇产科学/急诊与灾难医学/耳鼻咽喉头颈外科学待配）+ 用户指定科目；已有配图需求基线：`复习资料/_配图需求/大四上复习资料_配图需求清单.md`（59 张建议，P1 34 张优先）。
+3. **底图来源决策**：解剖结构类优先《人体解剖学彩色图谱》（`知识库素材/《人体解剖学》彩色图谱（第2版）(1).pdf-*/images/` + `知识库素材/图谱图片索引/image_index.md`）；机制/病理/无现成图用 AI 生成无字底图；同知识点跨科直接复用已有图（如急诊有机磷机制复用内科学 `images_webp/14_有机磷中毒突触机制（写实神经生物学）.webp`）。
+4. **质检硬需求**：AI 生成图必须人工质检（试点 2/2 首轮出错——肝画成肾、视神经放大图画成尿道样结构）：解剖准确性 / 无文字无杂项 / 标注无重叠。AI 图内中文标注一律禁用，中文标注用 `scripts/annotate_image.py` 程序叠加（label 模式默认）。
+5. **机械检查（GATE-A6，HC-12 不可跳过）**：
+   ```
+   python scripts/check_inline_images.py --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md --img-dir 复习资料/{科目}教学计划版/images_webp
+   ```
+   - exit 0 → 占位符语法合格、图号连续、alt 为「图N：图注」、引用的 webp 文件均存在
+   - exit 1 → halt，回退豆包（图片 Agent）补图/修复后重跑（缺失图/格式错误/图号断号）
+6. **终审汇总**：批终审报告新增一行 `插图：{X} 张（图谱复用 Y / AI 生成 Z / 缺失⚠️）`。
 
 ## 工作流执行模板
 
@@ -242,10 +253,11 @@ Golden Set 路径：05_GoldenSet\golden_set_v1.json
 1. 用户说「开始新批次」或提供素材
 2. 你读取 输入素材/ 目录，识别章节范围和目标科目
 3. 【必须】运行知识库检索：
-   python （宿主 agent 的检索能力） "【章节核心知识点】" --subject 【科目代码】 --top 10 --hybrid
-4. 【必须】运行考研真题配额检索（HC-18，2026-08-21 新增）：
-   python scripts/kaoyan_picker.py pick --subject 【科目】 --keywords "【章节关键词,逗号分隔】" --target 【ceil(目标题数×0.2)】 --out 中间产物/{batchID}/kaoyan_candidates.json
-   - 命中为 0 → 该章节无考研真题覆盖，Agent 2 指令标注「无真题覆盖，以原创补齐」
+   python 知识库素材/search_kb.py "【章节核心知识点】" --subject 【科目代码】 --top 10 --hybrid
+4. 【必须】运行真题双族配额检索（HC-22 修订版，2026-10-22 起；新题库批次）：
+   python scripts/real_question_cli.py plan --subject 【科目】 --target 【目标题数】 --batch 【batchID】 --keypoints 【教师重点锚定清单】 --blueprint 【出题蓝图】 --out 中间产物/{batchID}/real_question_plan.json
+   - 无教师重点清单时，改用 HC-18 legacy 的 `kaoyan_picker.py pick`，并只把 `answer_confidence=high/medium` 的题注入 Agent 2
+   - `quota_status=reduced/cancelled` → 该族候选不足，Agent 2 指令标注「不足部分原创补齐」，禁止无关题凑数
 5. 【必须】运行页码验证（2026-06-17 新增）：
    python verify_page_numbers.py --subject 【科目】
    - 如果输出 WARN → 该科目索引仍为旧 PDF 页码，Agent 2 调用指令中必须附带偏移量提示
@@ -285,11 +297,16 @@ Golden Set 路径：05_GoldenSet\golden_set_v1.json
 【命题双向细目表】：
 [从 HC-7 生成的知识领域×Bloom层级矩阵，含目标比例和题型分配]
 
-【考研真题配额】（HC-18）：
-- 目标：本批约 20% 题目（N 题）为考研原题（允许区间 15%–25%）
-- 候选文件：中间产物/{batchID}/kaoyan_candidates.json（kaoyan_picker.py 已按章节检索并配对答案）
-- 无真题覆盖章节：[列出，无则写"无"]
-- 引用方式：原题引用或轻度改编（知识点/答案/数值不得改动）；每道标注 kaoyan_origin 元数据 + 解析首句注明来源
+【真题双配额】（HC-22，新题库批次）：
+- 目标：考研约 20%（N 题）+ 执业医师约 20%（M 题），各允许 15%–25%
+- 候选文件：中间产物/{batchID}/real_question_plan.json 的 selected[]（含 source_id/keypoint_refs/answer_confidence/license/mode）
+- 无真题覆盖/不足：quota_status=insufficient，按实际可用量插入，剩余原创补齐；禁止无关题凑数
+- 标注：kaoyan_origin / zhiyi_origin + [源:...] + keypoint_ref + license；只使用 answer_confidence=high/medium
+- 引用方式：原题引用；知识点/答案/数值不得改动；解析首句注明来源
+
+【考研真题配额】（HC-18 legacy，仅旧批次或无教师重点清单时）：
+- 候选文件：中间产物/{batchID}/kaoyan_candidates.json（kaoyan_picker.py 已改为读取可信答案表）
+- 只注入 answer_confidence=high/medium 的题；`answer=ABCD/ABCDE` 前缀题禁止使用
 
 【目标考试】：[你确认的考试类型]
 
@@ -334,6 +351,21 @@ Golden Set 路径：05_GoldenSet\golden_set_v1.json
    - 追溯日志：最终产物/{batchID}/AGENT4_追溯日志.json
    - 人工告警：最终产物/{batchID}/escalations_for_human.md
 
+### 阶段五·五：生图（Agent 6 · 豆包执行 · HC-19 · 配图范围科目）
+
+Agent 5 交付主复习资料 MD + 配图清单后。**生图主责在豆包（Doubao 图片 Agent），DSH 不调用 image_gen**；DSH 侧只做任务打包、机械校验与人工质检复核。
+
+1. 核对 `{科目}_配图清单.md` 存在，统计占位符数（grep `!\[图[0-9]+：` 主复习资料 MD）
+2. **打包豆包交接任务包**（发给用户/豆包图片 Agent 对话框，需包含）：
+   - `{科目}_配图清单.md` 全文（每条含 AI Prompt 要素 / 图谱图号 / 复用来源）
+   - medillustration 分工契约与 skill 要点（`.dsh/skills/medillustration/SKILL.md`）：无字底图硬约束（单一主视图、≥2048px、纯白背景、无文字）、图谱优先（`知识库素材/图谱图片索引/image_index.md`）、AI 图人工质检、中文标注一律 `scripts/annotate_image.py` 程序叠加（label 模式）、WebP 1600px q=82 压缩
+   - 图谱 images/ 目录路径与可复用图路径（如内科学 `images_webp/14_有机磷中毒突触机制（写实神经生物学）.webp`）
+   - 科目目录规范：raw/ annotate_configs/ annotated/ images_webp/（相对 `复习资料/{科目}教学计划版/`）
+3. **验收**：豆包回传 images_webp/*.webp 后，DSH 侧：
+   - 人工质检复核（解剖准确性抽查——试点 2/2 首轮出错，肝画成肾）；不合格 → 打回豆包重生成
+   - 运行 GATE-A6（见下）
+4. exit 0 → 更新 workflow_state（AGENT6_DONE）→ 进入阶段五终审；exit 1 → halt，回退豆包重做
+
 ### 阶段五：终审与归档
 
 1. 读取 Agent 4 的追溯日志，检查：POLARITY_VIOLATION / 答案键联动 / 回滚项
@@ -341,7 +373,8 @@ Golden Set 路径：05_GoldenSet\golden_set_v1.json
 3. **检查附录页码真实性（HC-10）**：扫描「教材知识点页码索引」表，检测占位符页码和缺失页码。如检测到 `PLACEHOLDER_DETECTED` 或 `MISSING_PAGE`，自动从正文各模块考点速记表提取真实页码替换
 4. **检查考研真题配额（HC-18）**：运行 `python scripts/kaoyan_picker.py check --file 最终产物/{batchID}/ALL_questions_FIXED.json`；exit 1 → 核对真题候选与覆盖情况，确无覆盖则在报告中标注「无真题覆盖」后放行
 5. **检查最终交付 MD（2026-08-20 起强制）**：`最终产物/{batchID}/ALL_questions_FIXED.md` 必须存在（GATE-A4 后由 export-md 生成），抽查 3 题确认 ✅ 答案标记与 JSON 一致
-6. 汇总输出：
+6. **检查插图完整性（HC-19，配图范围科目强制）**：运行 `python scripts/check_inline_images.py --md 复习资料/{科目}教学计划版/{科目}_主复习资料.md --img-dir 复习资料/{科目}教学计划版/images_webp`；exit 1 → 回退豆包补图；统计图谱复用/AI 生成张数供汇总
+7. 汇总输出：
    ```
    🏁 批次 [ID] 执行完成
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -353,6 +386,7 @@ Golden Set 路径：05_GoldenSet\golden_set_v1.json
    考研真题占比：X%（目标≈20%，PASS / 未达标⚠️ / 无真题覆盖）
    术语附录：已生成 / 缺失⚠️
    页码附录：真实 / 占位符⚠️ / 缺失⚠️
+   插图：X 张（图谱复用 Y / AI 生成 Z / 缺失⚠️；配图范围科目）
    最终产物位置：最终产物/\[批次ID]\（JSON + MD 双格式）
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    🔴 请审查升级告警项后签收。

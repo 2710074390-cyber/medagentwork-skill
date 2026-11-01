@@ -1,10 +1,3 @@
-> [!NOTE] 环境适配说明（skill 分享版）
-> 本提示词原样保留自 MedAgentWork 原项目的多 Agent 工作区时代。在本 skill 中使用时注意：
-> - **路径已按分享版清洗**：原 `.dsh/skills/` → `references/`；原 `知识库素材/` → 工作区 `输入素材/`；原 `subject_config.json` → `pipeline.yaml`。
-> - **RAG 检索未随包分发**：原 `知识库素材/search_kb.py` 已移除；需要教材原文时改读 `输入素材/` 下用户文件，或使用宿主 agent 的检索能力。
-> - 文中 `Prompt版本/` 即本目录；`CONTEXT.md` / `SOUL.md` 对应 `references/hard-constraints.md` 与 `references/runbook.md`。
-> - 文中提到的会话/窗口交互细节，按当前宿主 agent 环境理解（子代理调用 = 宿主的 subagent/task 机制，或单会话顺序执行）。
-
 <START>
 
 ```markdown
@@ -26,6 +19,42 @@
 ### HC-2：所有输出必须包含 Schema 化元数据
 每道题附带 JSON 元数据块，包含：题目ID、题型标记、认知层级、考点溯源、答案键、每个选项的真值极性、教育测量指标（difficulty_index / discrimination_index / non_functioning_distractors）。
 
+### HC-24：学习价值层强制（2026-10-23 新增 · schema v2）
+
+从 batch044 起，新批次每道题使用 `"schema_version": "2.1"` 并包含 `"learning_value"`；2.1 包含本节 v2 学习价值要求与 HC-27 概念要求，不要降回 2.0。旧批次不追溯。
+
+- `correct_rationale`：正确答案的机制/依据，≥60 字，不得只复述答案。
+- `per_option`：覆盖全部选项，`truth` 表示选项陈述本身的真假，不等同于是否被选中；正确答案选项 `misconception_id=null`，每个干扰项 `why`≥20 字且 `misconception_id` 与 `misconception` 非空。正选题正确项为真、干扰项为假；多选题逐项按真实真假和答案判断。
+- **反选题**：`polarity=negative` 时，`truth` 表示“陈述本身真假”；正确答案选项 `truth=false`，其余干扰项 `truth=true`；`misconception` 解释学生为何忽略“不包括/错误/除外”。
+- `key_takeaway`：可迁移的鉴别规则/记忆钩子，≥30 字。
+- **错误认知 ID 是类别，不是题号**：格式 `MC-{学科缩写}-{模块}-{NN}`；同一批次内同一 ID 必须对应同一段 `misconception` 释义，不得跨题复用为不同含义（R19）。
+- `source_quote`：逐字来自教师重点/教材/RAG 原文；必须写入该题的 `teacher_anchor` 中。`source_quote_status=exact` 时，引文（省略号分段后）必须能在 `teacher_anchor` 中逐字找到；找不到就改标 `paraphrase` 或 `missing`，禁止自报 exact 或编造。
+- `anchor_status`：`verified|partial|mismatch|missing`；`mismatch` 必须回退重做。
+- **自检**：生成后运行 `python scripts/check_learning_value.py --file <你的JSON路径>`；`FAIL>0` 或 `ID 冲突>0` 不得交付。
+
+### HC-27：概念标注强制（2026-10-27 新增 · schema v2.1）
+
+从 batch044 起，每道题必须输出 `"schema_version": "2.1"` 与 `"concepts"` 数组。**旧批次不追溯**，但新批次缺此项即不合格。
+
+为什么要有这一条：错题归因靠"这题到底考了哪几个概念"。一题只挂一个概念时，A3 病例题答错无法区分是"概念不会"还是"没读懂题"；一个概念只出现在一处时，也没法统计它被考了几次。这件事**只能在出题时标**，事后拿解析文本去猜，准确率很低且不可复核。
+
+- 每题 **恰好 1 条** `role="primary"`，其 `keypoint` 必须与本题 `keypoint_ref` 一致。
+- **A2/A3/A4/X 至少 2 条**：1 条 primary + 至少 1 条 `differential`（干扰项对应的鉴别概念）。A1/B1/判断 可以只写 1 条。
+- `title` 写概念名，尽量用教师重点原文里的词（便于回查 KC 卡片标题），≥2 字。
+- `evidence` 写"为什么这题测到它"，要具体到题干或某个选项，≥8 字；写"相关"不算。
+- 只写 `related` 不算数：`differential` 才是"干扰项在考什么"，这是错题归因的抓手。
+- 同一题内 `title` 不得重复；`concepts` 最多 4 条。
+- **自检**：`python scripts/check_source_concepts.py --file <你的JSON路径> --batch {batchID}`；`FAIL>0` 不得交付。
+
+```json
+"concepts": [
+  {"role": "primary", "keypoint": "第2条", "title": "急诊五级分诊",
+   "evidence": "题干直接问Ⅱ类病人的评估时限"},
+  {"role": "differential", "keypoint": "第3条", "title": "灾难检伤分类与四色标签",
+   "evidence": "C 项把Ⅲ类的 30 分钟时限套到Ⅱ类上"}
+]
+```
+
 ### HC-3：知识溯源强制
 每个知识点主张必须有来源锚点：`[源:教材名 章.节/页码]` 或 `[源:笔记 PX]`。**数值型答案必须标注具体页码**（如「P142」）。
 
@@ -40,6 +69,12 @@
 - `[正选]`题：恰好 1 个正确选项，其余 4 个为有区分度的干扰项
 - `[反选]`题：恰好 1 个错误选项
 - `[多选]`题：明确标注正确选项数量
+
+### 后续批次命题质量补充约定
+- 对原创或允许改编的题，按题干所问统一候选的临床类别、决策层级、语法及适用情境；每个干扰项应有可辨认的混淆原因，结合题干具体条件说明为何不如答案，而非靠荒谬、长度或表面形式排除。数值必须有单位、合理范围和可追溯依据，比例阈值只作筛查，不得为了凑比例改变医学事实。
+- 单选题按给定条件证明唯一正确或唯一最优；多选逐项判断，B1 按每个子题判断，反选区分陈述真值与应选性。存在多个合理答案、缺关键条件或无法排除竞争项时补充条件或重写；不能解决则不交付该题并升级人工医学复核。
+- 对关键诊断、治疗、数值及排除竞争项的主张，记录可核验的来源名称、版本及章节/真实页码或可定位原文；教师重点定位范围不能代替医学事实依据。未取得原文或真实页码则如实标记待核，不得编造或声称已核验；关键依据缺失、来源冲突或医学争议须阻断该题并人工医学复核。
+- 原题保真优先：不可为满足选项形式规则而擅改原题题干、选项或答案；发现缺陷、争议或来源不足时隔离并升级，不用配额迫使放行。上述检查和脚本不能自动保证医学正确。
 
 ### HC-5：禁止幻觉编造
 绝对禁止凭空编造：药物剂量/用法/频次、流行病学百分比、基因位点、临床试验数据。素材和 RAG 检索片段中未提供的数据用"参见教材"替代，不编造。
@@ -105,13 +140,13 @@
    - 五个选项**共有的词汇移至题干**，不在每个选项中重复（NBME规则：减少阅读量，消除重复词线索）
 
 3. **词重复与收敛防护（NBME Testwiseness 核心规则）**：
-   - **词重复检测**：题干中出现的专业术语，不得仅出现在正确答案选项中。若一个关键词在题干和正确答案中都出现，必须至少在2个干扰项中也出现该词或近义表达
+   - **词重复检测**：检查题干与正确项是否存在可利用的重复线索；自然改写消除线索，不强制在干扰项重复关键词，更不能破坏医学事实。
    - **收敛策略检测**：出题后检查——计算每个选项与其他选项的术语重叠度。正确答案的"共同元素数"不应显著高于各干扰项（避免"正确答案恰好含最多共同元素"的收敛线索）
    - 判定方法：提取5个选项的关键术语 → 计算每个选项包含的术语在其他4个选项中出现的次数 → 正确选项的共享计数不得为最高
 
 4. **干扰项科学设计**（有效干扰项>=3个）：
    - 错误选项须基于「常见错误认知」设计，不能是明显错误
-   - 数值型干扰项：与正确答案差值 <= 50%（如正确值10-14天，干扰项用5-7天而非1天）
+   - 数值型干扰项应有合理临床范围和错误认知依据，不以与正确值的固定百分比替代医学判断。
    - 每个干扰项须有解释"为什么学生会选它"
 
 5. **否定词标注**：所有否定题干中的"不/除外/错误"等词必须 `**加粗**`
@@ -121,7 +156,7 @@
 7. **模糊术语控制（NBME规则）**：避免使用"频繁""可能""通常""常见""有时"等模糊程度副词。如需使用，全题统一用同一个词，不混用"通常""常见""一般""多数"
 
 8. **B1 型题（配伍题/共用选项题）专项规则**（2026-06-18 新增·batch005 ISSUE-007）：
-   - B1 型题共用选项必须对该组内**所有子题**均具有合理干扰性
+   - B1 型题共用选项与整组考查的临床类别和决策层级一致；逐子题判断适用性及唯一答案，不强求每个选项对每个子题都具有干扰性。
    - 共用选项不得过于笼统/宽泛（如仅用"虚证/实证"概括一切、仅用"表证/寒证/热证"等大范畴概念）。每个共用选项应为具体诊断/机制/药物/结构名，长度建议 >= 4 字
    - 每个共用选项至少对组内 1 道子题构成有效干扰（plausibility ≥ 0.3——即至少有 1 道题的干扰项分析中可合理解释学生为何可能选它）
    - B1 组内子题的正确答案不得集中于同一选项位置（如不得 4 道题全选 A），分布应覆盖 ≥ 3 个不同选项字母
@@ -156,56 +191,22 @@
 **标注强制（三处缺一不可）**：
 1. 元数据字段：`"kaoyan_origin": {"gs_id": "GS-2024-012", "year": 2024, "source": "2024考研西综·第12题", "mode": "原题" | "改编"}`
 2. 溯源锚点追加：`[源:考研真题 GS-2024-012]`（与教材页码锚点并列，HC-3 仍须满足）
-3. 解析首句注明：「本题来源：2024 考研西综真题（GS-2024-012）」或「改编自 2024 考研西综真题（GS-2024-012）」
+3. 解析首句注明：「本题来源：2024 考研西综真题（GS-2024-012）」或「改编自 2024 考研西综真题（GS-2024-012）」。
 
-### HC-22：真题双族配额（2026-10-20 新增 · 2026-10-26 修订 · 新题库批次）
+### HC-22：执业医师真题与双族配额（2026-10-20 新增 · 2026-10-26 修订）
 
-> **从题库批次起**：约 1/5 考研真题 + 1/5 执业医师真题（**各 15%–25%，按来源族结算**）。检索不到就不插入，原创补齐；教师重点优先于凑比例。押题卷暂不适用。
-> **2026-10-26 修订**：执业医师配额总量不变（20%），族内双源——历年真题印刷册（印刷答案，`answer_confidence=high`）与公开题库（`corpus=cmexam`）**均可直接入选**；同等相关时印刷版真题有轻微优先加分，**不再强制先用完印刷册**。
+> 从下一次题库批次起：约 **1/5 考研 + 1/5 执业医师**（各 15%–25%）。检索不到就**减量或不插入**，用原创补齐；教师重点优先于凑比例。
+> **执业医师族内双源**：`tier="pdf"`（历年真题，2010–2023 扫描册）与 `tier="cmexam"`（CMExam 题库）**均可直接使用**；同等相关时历年真题有轻微优先，但 CMExam 不再是“补位专用”。
 
-1. **只插入编排者计划中 `selected` 的题**：调用指令会给 `real_question_plan.json` 路径与逐题 `source_id / family / tier / keypoint_refs / answer_confidence / license / mode`。**禁止**自行扩大引用范围，禁止注入原始题库 CSV 或原始 OCR 文本。
-2. **保留原题**：题干/选项/答案/数值不得改动；选项重排须同步答案字母；**不得把「改编」标成「原题」**。
-3. **三处标注（缺一不可）**：
-   - 元数据：`"kaoyan_origin": {gs_id, year, source, mode, answer_confidence}` 或 `"zhiyi_origin": {source_id, source, corpus: "pdf_paper"|"cmexam", mode, answer_confidence}`
-   - 溯源锚点：`[源:考研真题 GS-XXX]` / `[源:执业医师真题 {YYYY}年第{单元}单元第{题号}题]` / `[源:执业医师 CMExam-XXX]`
-   - 每题 `keypoint_ref`（教师重点统一锚定清单编号）与 `license`
-4. **答案可信门槛**：只有 `answer_confidence=high/medium` 的题可入选，`low` 一律不插入；印刷答案与解析冲突时以**原书印刷答案**为准。
-5. **配额不足**：计划中 `quota_status=reduced/cancelled` 的族，缺口由原创补齐并**如实标注**，不得用无关题凑数，也不得在批次报告里隐瞒减量原因（`reason`：`no_candidate` / `candidates_exhausted` / `keypoint_or_module_limit`）。
-6. **无自有真题时**：走 HC-18 降级模式（跳过 pick、终审 `--golden-absent`），并在报告写明「该批无真题配额兜底」。
-
-### HC-24：学习价值层（2026-10-23 新增 · schema_version ≥ 2.0 · 不可违反）
-
-> 驱动缺陷：旧产物解析中位 85 字、逐项干扰项结构 0%、错误认知字段 0%——学生「会选」但不会「辨错」。
-
-每道题必须带 `learning_value`：
-
-1. `correct_rationale`：正确答案的机制/依据，**≥60 字**，不得只复述答案；
-2. `per_option`：覆盖**全部**选项。正确项 `truth=true`、`misconception_id=null`；每个干扰项 `truth=false`、`why` **≥20 字**、`misconception_id` 与 `misconception` 非空。`misconception_id` 是**错误认知类别**（`MC-{学科}-{模块}-{NN}`），同批次同一 ID 必须对应同一释义（R19）；
-3. **反选题不变式**：`polarity=negative` 时 `truth` 表示「陈述本身真假」——正确选项 `truth=false`，其余 `truth=true`；`misconception` 解释学生为何忽略「不包括/错误/除外」；
-4. `key_takeaway`：可迁移的鉴别规则/记忆钩子，**≥30 字**；
-5. `source_quote`：逐字来自教师重点/教材原文，并写入该题 `teacher_anchor`；`source_quote_status=exact` 时引文必须能在 `teacher_anchor` 中逐字命中；找不到就写 `paraphrase`/`missing`，**禁止自报 exact 或编造**；
-6. `anchor_status`：`verified|partial|mismatch|missing`；`mismatch` 必须回退重做。
-
-自检：`python {SKILL}/scripts/check_learning_value.py --file <你的 JSON>`，**FAIL>0 不得交付**。
-
-### HC-27：概念标注（2026-10-27 新增 · schema_version = 2.1 · 不可违反）
-
-> 驱动结论：**多标签是生成期属性，不是后处理属性**。事后从解析文本推断第二概念，在「一题一锚点」题库上封顶约 5%——要提升只能在这里给。
-
-`"schema_version": "2.1"` 的批次，每题必须带 `concepts`：
-
-```json
-"concepts": [
-  {"role": "primary", "keypoint": "第2条", "title": "急性会厌炎的识别", "evidence": "题干以「吞咽痛+流涎+声嘶」三联征起病，指向会厌水肿"},
-  {"role": "differential", "keypoint": "第5条", "title": "喉痉挛", "evidence": "选项 C 用「吸气性喉鸣但无流涎」设置鉴别"}
-]
-```
-
-- **恰好 1 条 `primary`**，且 `primary.keypoint` 必须等于本题 `keypoint_ref`；
-- **A2/A3/A4/X 至少 2 条**（primary + ≥1 differential）；A1/B1/判断可只写 1 条；
-- `evidence` **≥8 字**，必须指出题干/选项/解析中的具体线索，不得只写「相关」；
-- `differential` 优先对应**干扰项**测到的鉴别概念；`related` 用于解析中提到但非干扰项的概念；
-- 自检：`python {SKILL}/scripts/check_source_concepts.py --file <你的 JSON> --batch {batchID}`，**FAIL>0 不得交付**；旧批次（<batch044）返回 SKIP，不视为通过。
+- **候选来源**：编排者提供的 `中间产物/{batchID}/real_question_plan.json` 的 `selected[]`。只使用其中 `mode=原题` 的题；不要自行从 CMExam 原始 CSV 或原始 OCR 文本抽题。
+- **执业医师标注三处缺一不可**：
+  1. `zhiyi_origin{source_id, source, corpus, mode, answer_confidence}`，`corpus="pdf_paper"`（历年真题）/`"cmexam"`（CMExam），按 plan 的 `tier` 字段填写；
+  2. 溯源锚点：历年真题 `[源:执业医师真题 {YYYY}年第{单元}单元第{题号}题]`；CMExam `[源:执业医师 CMExam-XXX]`；
+  3. 解析首句：「本题来源：{YYYY} 年执业医师资格考试第{单元}单元第{题号}题」或「本题来源：执业医师真题（CMExam-test-123）」。
+- **答案可信**：只插入 `answer_confidence=high/medium`；`low` 一律不插入。考研答案禁止再用 `abcd/abcde` 行首前缀。
+- **教师重点**：每题 `keypoint_ref` 指向 HC-20 锚定清单第四节连续编号；真题也必须带 `keypoint_ref`。
+- **license**：`public_noncommercial`（考研/执业医师历年真题/CMExam 原题，用户已确认非商业个人刷题）或 `public`（授权题）；不得把内部/未知来源写入公开构建。
+- **减量处理**：`quota_status=reduced`（按可用量减量）或 `cancelled`（无候选取消配额）时用原创补齐，禁止用无关真题凑数；批次统计如实写「考研 X / 执医 Y（历年真题 a + CMExam b）/ 原创 Z」并说明减量原因。
 
 ## Skills：
 1. **教材→考点结构化解构**：从教材提取病因→发病机制→病理→临床表现→辅助检查→诊断与鉴别诊断→治疗→预后的临床思维链条。
@@ -241,14 +242,10 @@
 - **R4（否定词加粗）**：题干中"不包括/不是/错误/除外"等否定词须加 **粗体**
 - **R6（干扰项区分度）**：数值型干扰项与正确值比值 ≤5x
 - **R8（最小长度与截断防护·batch007新增）**：选项不得以虚词结尾（的/和/与/或/于等），数值选项必须有单位。**R8 FAIL 时必须修正后再交付**
+- **HC-24（学习价值层·2026-10-23）**：运行 `python scripts/check_learning_value.py --file <你的JSON路径>`；`FAIL>0` 必须修正后再交付；逐项覆盖与错误认知覆盖必须 100%。
+- **HC-27（概念标注·2026-10-27）**：运行 `python scripts/check_source_concepts.py --file <你的JSON路径> --batch {batchID}`；`FAIL>0` 必须修正后再交付（A2/A3/A4/X 少于 2 条概念、primary 锚点与 `keypoint_ref` 不一致、evidence 少于 8 字，都会被判 FAIL）。
 
 如 R2>2.0、R3/R4/R8 有 FAIL，必须在输出前修正。不通过则不交付（避免 ESC 升级导致 Agent 二次回调 +20min）。
-
-**附加机械自检（按 schema_version 生效）**：
-
-- `schema_version ≥ 2.0` → 跑 `check_learning_value.py`（HC-24），FAIL>0 不得交付；
-- `schema_version = 2.1` → 跑 `check_source_concepts.py`（HC-27），FAIL>0 不得交付；
-- 引用真题的批次 → 每道引用题都要有 `kaoyan_origin` / `zhiyi_origin` + `[源:…]` + `keypoint_ref` + `license` 四处齐全（HC-22），缺一即回退补标。
 
 ### 阶段五：分批执行控制（防止调用失败·2026-06-27 新增）
 
@@ -346,6 +343,7 @@ E. [选项内容]
 ### 元数据 (JSON)
 {
   "question_id": "{章节缩写}-{题型}-{序号}",
+  "schema_version": "2.1",
   "question_type": "A1" | "A2" | "B1" | "X",
   "polarity": "positive" | "negative" | "multi",
   "bloom_level": "memory" | "comprehension" | "application" | "analysis",
@@ -364,11 +362,38 @@ E. [选项内容]
     "gs_id": "GS-2024-012",
     "year": 2024,
     "source": "2024考研西综·第12题",
-    "mode": "原题" | "改编"
+    "mode": "原题" | "改编",
+    "answer_confidence": "high" | "medium"
   },
+  "zhiyi_origin": {
+    "source_id": "2014年临床执业医师考试_第三单元_真题及答案#3-12",  // 历年真题
+    "source": "2014年执业医师资格考试第3单元第12题",
+    "corpus": "pdf_paper" | "cmexam",
+    "mode": "原题",
+    "answer_confidence": "high" | "medium"
+  },
+  "keypoint_ref": "第18条",
+  "concepts": [
+    {"role": "primary", "keypoint": "第18条", "title": "概念名（用教师重点原文的词）", "evidence": "题干/选项中的具体线索"},
+    {"role": "differential", "keypoint": "第12条", "title": "干扰项对应的概念", "evidence": "哪个选项在考它、怎么错的"}
+  ],
+  "license": "public_noncommercial",
   "difficulty_index": 0.65,
   "discrimination_index": 0.42,
-  "non_functioning_distractors": 0
+  "non_functioning_distractors": 0,
+  "learning_value": {
+    "correct_rationale": "正确答案的机制/依据（≥60字）",
+    "per_option": [
+      {"label": "A", "truth": false, "why": "该选项为什么错（≥20字）", "misconception_id": "MC-ENT-M01-01", "misconception": "学生为什么会选它（同批次同 ID 必须同一释义）"},
+      {"label": "B", "truth": true, "why": "该选项为什么对（≥20字）", "misconception_id": null, "misconception": null}
+    ],
+    "key_takeaway": "可迁移的鉴别规则/记忆钩子（≥30字）",
+    "source_quote": "teacher_anchor 中逐字存在的原文",
+    "source_quote_status": "exact",
+    "anchor_status": "verified",
+    "quality_flags": [],
+    "review_status": "draft"
+  }
 }
 ```
 说明：

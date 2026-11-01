@@ -18,15 +18,21 @@
     WARN  = 无单位裸数字、中文数字列举（三处/四度/五组）——本脚本不判定（人工复核）
     SKIPPED = 未提供教师重点原文 / 原文中无可判定硬事实 → 退出码 2（显式降级，不视为通过）
 
-用法（在用户工作区目录下执行）
-    python {SKILL}/scripts/check_keypoint_coverage.py \
-        --keypoints "输入素材/{科目}/{科目}_教师重点_<学校或日期>.md" \
+用法
+    python scripts/check_keypoint_coverage.py \
+        --keypoints "输入素材/大四上/{科目}/{科目}_教师重点_*.md" \
         --md "复习资料/{科目}教学计划版/{科目}_主复习资料.md" \
         [--allowlist <文件，每行一条可豁免的硬事实，'#' 开头为注释>] \
-        [--no-anchors] [--json]
+        [--no-anchors] [--json] [--source-text <原始教师文本，可重复>]
 
+    --source-text 为可选、非阻断的文字来源审计；不提供时不会核验来源。
+    --adaptive 启用严格逐条核验：--source-text 必须恰有一个可读取的教师原文文件，
+    其中须有与旧清单对应的连续编号块（从1起至少5条）。每条资料须各有一行
+    `📌 重点原文（第X条）：原文条目正文`，逐字照录；教材补写另用单行
+    `📚 教材补写（第X条）：补写内容`。仅在同编号补写行核对旧清单的非原文事实。
+    本模式不支持 --no-anchors 或 --allowlist；无法可靠对应时失败。
+    多个来源独立匹配，不跨文件拼接；仅比较文字，不判断医学正确性。
     教师重点原文支持 .md / .txt（.docx 请先转 md）。
-    --keypoints 按字面路径读取，不展开 * 通配符；多份重点请先合并或分别运行。
 """
 import argparse
 import io
@@ -36,6 +42,8 @@ import sys
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------- 归一化
 _TRANS = str.maketrans({
@@ -148,6 +156,86 @@ def drop_lines(md_text: str):
     return out
 
 
+def audit_sources(md_text, paths):
+    sources, errors = [], []
+    for path in paths:
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+            if not text.strip():
+                raise ValueError("文件为空")
+            sources.append((path, text))
+        except (OSError, UnicodeError, ValueError) as exc:
+            errors.append({"path": path, "error": str(exc)})
+    results = []
+    for number, texts in drop_lines(md_text).items():
+        for text in texts:
+            # 仅去除空白，不使用硬事实的单位同义词及标点转换。
+            compact = re.sub(r"\s+", "", text)
+            exact = [path for path, source in sources if text and text in source]
+            formatted = [path for path, source in sources
+                         if compact and compact in re.sub(r"\s+", "", source)]
+            if exact:
+                status, matches = "exact", exact
+            elif formatted:
+                status, matches = "formatting_only", formatted
+            elif not compact or errors or not sources:
+                status, matches = "unverified", []
+            else:
+                status, matches = "not_found", []
+            results.append({"number": number, "text": text, "status": status,
+                            "sources": matches})
+    return {"sources": list(paths), "errors": errors, "results": results}
+
+
+def adaptive_check(kp_raw, md_raw, paths, no_anchors, allowlist):
+    errors = []
+    items = find_emphasis_items(kp_raw.splitlines())
+    source_items = None
+    if no_anchors or allowlist:
+        errors.append("自适应模式不支持 --no-anchors 或 --allowlist")
+    if len(paths) != 1:
+        errors.append("自适应模式需要恰好一个教师原文来源")
+    else:
+        try:
+            source = Path(paths[0]).read_text(encoding="utf-8")
+            source_items = find_emphasis_items(source.splitlines())
+        except (OSError, UnicodeError) as exc:
+            errors.append(f"教师原文未核实：{exc}")
+    if not items or not source_items:
+        errors.append("旧清单或教师原文缺少可识别的连续编号块，未核实")
+    drops = drop_lines(md_raw)
+    supplements = {}
+    for line in md_raw.splitlines():
+        match = re.match(r"^\s*📚\s*教材补写[（(]第\s*(\d+)\s*条[）)][:：]\s*(.*)$", line)
+        if match:
+            supplements.setdefault(int(match.group(1)), []).append(match.group(2))
+    partial = []
+    if items and source_items:
+        old = {n: _NUM_RE.match(text).group(2) for n, text in items}
+        original = {n: _NUM_RE.match(text).group(2) for n, text in source_items}
+        if set(old) != set(original):
+            errors.append("旧清单与教师原文编号不一致，未核实")
+        remaining = kp_raw.splitlines()
+        for _, text in items:
+            for index, line in enumerate(remaining):
+                if line.strip() == text:
+                    remaining[index] = ""
+                    break
+        if facts_of("\n".join(remaining)):
+            errors.append("旧清单编号块外存在硬事实，未核实")
+        for n in sorted(set(old) & set(original)):
+            if not original[n].strip() or original[n] not in old[n]:
+                errors.append(f"第{n}条旧清单未包含完整教师原文，未核实")
+            if len(drops.get(n, [])) != 1 or drops[n][0] != original[n]:
+                errors.append(f"第{n}条原文锚点缺失、重复或未逐字照录")
+            extra_text = old[n].replace(original[n], "", 1) if original[n] in old[n] else old[n]
+            for fact in facts_of(extra_text):
+                if not any(present(normalize(text), fact) for text in supplements.get(n, [])):
+                    partial.append((n, fact))
+    return {"errors": errors, "partial_facts": partial,
+            "verdict": "FAIL" if errors or partial else "PASS"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="教师重点覆盖门禁（HC-20 / D0）")
     ap.add_argument("--keypoints", help="教师重点/复习大纲原文（.md/.txt）")
@@ -155,6 +243,9 @@ def main() -> int:
     ap.add_argument("--allowlist", help="豁免清单（每行一条硬事实，# 开头为注释）")
     ap.add_argument("--no-anchors", action="store_true", help="跳过编号条目锚点检查")
     ap.add_argument("--json", action="store_true", help="输出 JSON")
+    ap.add_argument("--adaptive", action="store_true", help="启用严格逐条自适应覆盖核验")
+    ap.add_argument("--source-text", action="append", default=[],
+                    help="原始教师文本（.md/.txt，可重复；仅非阻断来源审计）")
     args = ap.parse_args()
 
     print("=== 教师重点覆盖门禁 check_keypoint_coverage.py（HC-20 / D0）===")
@@ -168,7 +259,6 @@ def main() -> int:
             print(f"ERROR —— .docx 不受支持，请先转为 .md/.txt：{args.keypoints}")
         else:
             print(f"ERROR —— 教师重点原文不存在：{args.keypoints}")
-            print("提示：--keypoints 按字面路径读取，不会展开 * 通配符；请传入实际文件名。")
         return 2
     if not args.md:
         print("ERROR —— 缺少 --md（主复习资料 MD）")
@@ -178,8 +268,18 @@ def main() -> int:
         print(f"ERROR —— 主复习资料不存在：{args.md}")
         return 2
 
-    kp_raw = kp.read_text(encoding="utf-8", errors="replace")
-    md_raw = md_path.read_text(encoding="utf-8", errors="replace")
+    kp_raw = kp.read_text(encoding="utf-8", errors="strict" if args.adaptive else "replace")
+    md_raw = md_path.read_text(encoding="utf-8", errors="strict" if args.adaptive else "replace")
+    if args.adaptive:
+        result = adaptive_check(kp_raw, md_raw, args.source_text, args.no_anchors, args.allowlist)
+        print(f"  自适应核验：{result['verdict']}")
+        for error in result["errors"]:
+            print(f"  ❌ {error}")
+        for number, fact in result["partial_facts"]:
+            print(f"  ❌ 第{number}条教材补写缺少 {fact}")
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["verdict"] == "PASS" else 1
     md_norm = normalize(md_raw)
 
     allow = set()
@@ -249,19 +349,37 @@ def main() -> int:
     if allowed_hits:
         print(f"  ⚠️ 已豁免（allowlist，请确认理由已写在该文件注释里）：{allowed_hits}")
 
+    source_audit = None
+    if args.source_text:
+        source_audit = audit_sources(md_raw, args.source_text)
+        print("  来源审计（非阻断；仅文字匹配，不判断医学正确性）：")
+        for error in source_audit["errors"]:
+            print(f"     未读取来源 {error['path']}：{error['error']}")
+        labels = {"exact": "精确匹配", "formatting_only": "仅排版规范化匹配",
+                  "not_found": "未找到", "unverified": "未核验"}
+        if not source_audit["results"]:
+            print("     未检测到可审计的重点原文落点行，未核验")
+        for result in source_audit["results"]:
+            print(f"     第{result['number']}条：{labels[result['status']]}"
+                  + (f" · 来源 {result['sources']}" if result['sources'] else ""))
+        print("     未找到仅表示所提供的各来源中无匹配；来源可能不全或为截取文本。")
+
     print(f"\n=== 结果: {'PASS' if ok else 'FAIL'} · 缺失项 {n_fail} ===")
     if not ok:
         print("→ 回退 Agent 5：按 D0 在对应考点补 `📌 重点原文（第X条）：…` 落点行，"
               "原样保留数值/时间窗/并列与禁止结构；确非命题范围的细节写入 --allowlist 并注明理由。")
 
     if args.json:
-        print(json.dumps({
+        output = {
             "keypoints": str(kp), "md": str(md_path),
             "facts_total": len(kp_facts), "missing": missing,
             "allowed": allowed_hits, "missing_anchors": missing_anchors,
             "partial_facts": anchor_report["partial_facts"] if anchor_report else [],
             "verdict": "PASS" if ok else "FAIL",
-        }, ensure_ascii=False, indent=2))
+        }
+        if source_audit is not None:
+            output["source_audit"] = source_audit
+        print(json.dumps(output, ensure_ascii=False, indent=2))
 
     return 0 if ok else 1
 

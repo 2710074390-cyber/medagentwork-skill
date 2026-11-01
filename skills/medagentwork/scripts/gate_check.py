@@ -9,7 +9,10 @@
   python gate_check.py --batch batch014 --stage agent2_done     # Agent2→Agent3 转换前
   python gate_check.py --batch batch014 --stage agent3_done     # Agent3→Agent4 转换前
   python gate_check.py --batch batch014 --stage agent4_done     # Agent4→Agent5 转换前
+  python gate_check.py --batch batch014 --stage learning_value  # HC-24 学习价值层（新批次 v2）
   python gate_check.py --batch batch014 --stage final           # 终审前全量检查
+  python gate_check.py --batch batch040 --stage final \
+      --learning-value-mode advisory                            # 学习价值评分卡 advisory 门禁
 
 门禁规则:
   GATE-A2: validate_options.py FAIL==0（产出门禁，batch006 教训）
@@ -22,27 +25,24 @@
   exit 1 = GATE_BLOCKED（必须修复后重试）
   exit 2 = GATE_FAIL（脚本/数据错误）
 """
-import sys, json, re, argparse, subprocess
+import sys, json, re, argparse, subprocess, hashlib, tempfile
 from collections import Counter
 from pathlib import Path
 from datetime import datetime
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-# 代码目录（本脚本所在 scripts/）与用户工作区（运行时 cwd）分离
-BASE = Path(__file__).resolve().parent
-WORKSPACE = Path.cwd()
+BASE = Path.cwd()
+SKILL_SCRIPTS = Path(__file__).resolve().parent
 
-# 正式重构 (2026-08-13): 状态读写/HALT 统一走 scripts/workflow_state.py
-sys.path.insert(0, str(BASE))
+# 状态与产物位于用户工作区，脚本依赖位于发布包。
+sys.path.insert(0, str(SKILL_SCRIPTS))
 import workflow_state as ws
 
-# pipeline.yaml 阈值单一事实来源（评审 §6.4 / §七.7）
+# v2.1 回灌 (2026-10-13): pipeline.yaml 阈值「单一事实来源」（缺失回退内置默认）
 from pipeline_config import get_number
 
-# v1.1 修复（评审 §6.5-P1.2）：原 `from scripts.telemetry import ...` 指向包内
-# 不存在的模块（且 scripts 非可导入包），靠 except ImportError 静默降级 —— 死依赖。
-# 现补齐 telemetry.py 并改为按同目录导入（BASE 已在 sys.path 中）。
+# 集成 telemetry 模块（2026-09-09 新增；v2.1 回灌加固：降级可见，不再静默）
 try:
     from telemetry import log_gate_check, log_info, log_error
     TELEMETRY_AVAILABLE = True
@@ -190,6 +190,66 @@ def normalize_batch(batch_data: dict) -> dict | None:
     return normalized
 
 
+# ═══════════════════════════════════════
+# 门禁适用范围（2026-10-23 · 按产物类型分流）
+# ═══════════════════════════════════════
+PRODUCT_QUESTION_BANK = 'question_bank'
+PRODUCT_PREDICTION_PAPER = 'prediction_paper'
+PRODUCT_REVIEW_MATERIAL = 'review_material'
+PRODUCT_TYPES_ALL = {
+    PRODUCT_QUESTION_BANK,
+    PRODUCT_PREDICTION_PAPER,
+    PRODUCT_REVIEW_MATERIAL,
+}
+
+
+def infer_product_types(batch_id, batch_data) -> set[str]:
+    """推断批次产物类型，决定哪些门禁具有管辖权。
+
+    优先使用状态中的显式 product_types；缺失时按产物形状保守推断。
+    旧批次没有该字段时仍按原有题库路径处理，避免行为漂移。
+    """
+    explicit = batch_data.get('product_types') if isinstance(batch_data, dict) else None
+    if isinstance(explicit, str):
+        explicit = [explicit]
+    if isinstance(explicit, (list, tuple, set)):
+        picked = {str(x).strip() for x in explicit if str(x).strip() in PRODUCT_TYPES_ALL}
+        if picked:
+            return picked
+
+    types: set[str] = set()
+    subject = str(batch_data.get('subject') or '')
+    chapter = str(batch_data.get('chapter') or '')
+    exam_type = str(batch_data.get('exam_type') or '')
+    workflow = str(batch_data.get('workflow') or '')
+    marker = subject + chapter + exam_type + workflow
+    final_dir = BASE / '最终产物' / batch_id
+    final_md = [p.name for p in final_dir.glob('*.md')] if final_dir.exists() else []
+    raw_steps = batch_data.get('steps') if isinstance(batch_data.get('steps'), dict) else {}
+
+    if '押题' in marker or any('押题' in name for name in final_md):
+        types.add(PRODUCT_PREDICTION_PAPER)
+
+    has_final_json = bool(list(final_dir.glob('ALL_questions_FIXED*.json'))) if final_dir.exists() else False
+    if has_final_json or 'AGENT2' in raw_steps:
+        types.add(PRODUCT_QUESTION_BANK)
+
+    review_dir = BASE / '复习资料'
+    has_review_file = bool(subject and review_dir.exists()
+                           and list(review_dir.rglob(f'{subject}*主复习资料.md')))
+    # final_review 是通用终审记录，不单独作为“复习资料产物”证据；
+    # 仅当没有题库/押题卷证据时才用它兜底。
+    if 'AGENT5' in raw_steps or has_review_file or (batch_data.get('final_review') and not types):
+        types.add(PRODUCT_REVIEW_MATERIAL)
+
+    # 三者都没有证据时按题库处理（保持旧批次行为）
+    return types or {PRODUCT_QUESTION_BANK}
+
+
+def is_question_bearing(types: set[str]) -> bool:
+    return bool(types & {PRODUCT_QUESTION_BANK, PRODUCT_PREDICTION_PAPER})
+
+
 # 正式重构 (2026-08-13): load_state/save_state/set_halt/clear_halt/check_halt
 # 已统一迁移至 scripts/workflow_state.py（原子写盘、按批次 HALT、旧数据迁移），
 # 本文件不再保留本地实现，全部经由 ws.* 调用。
@@ -199,7 +259,7 @@ def find_validate_report(batch_id):
     """查找指定批次的 validate_options.py 报告
     优先搜索 reports/validate/，兼容历史根目录残留。
     """
-    search_dirs = [WORKSPACE / 'reports' / 'validate', WORKSPACE]
+    search_dirs = [BASE / 'reports' / 'validate', BASE]
     candidates = [
         f'validate_options_report_ALL_questions_{batch_id}.json',
         f'validate_options_report_{batch_id}.json',
@@ -219,9 +279,118 @@ def find_validate_report(batch_id):
     return None
 
 
+def _is_strict_batch(batch_id, batch_data):
+    """既有 batch044 及以前保留兼容，其他批次不可静默降级。"""
+    mode = batch_data.get('evidence_binding_mode') if isinstance(batch_data, dict) else None
+    match = re.fullmatch(r'batch(\d+)(?:-[A-Za-z0-9]+)?', str(batch_id or ''))
+    return mode == 'strict' or not (match and int(match.group(1)) <= 44 and mode in (None, 'legacy'))
+
+
+def _binding_mode_error(batch_id, batch_data):
+    mode = batch_data.get('evidence_binding_mode') if isinstance(batch_data, dict) else None
+    if _is_strict_batch(batch_id, batch_data) and mode != 'strict':
+        return f'批次 {batch_id} 的 evidence_binding_mode 缺失或无效，必须为 strict'
+    return None
+
+
+def _resolve_report_source(source_file):
+    path = Path(str(source_file))
+    if path.is_absolute():
+        return path
+    return BASE / path
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _batch_binding_issues(batch_id, report, report_path, stage, strict):
+    """验证阶段报告的批次/实际输入/版本绑定；历史批次只保留原门禁。"""
+    if not strict:
+        return []
+    if not isinstance(report, dict):
+        return [f'{stage} 报告结构无效']
+    metadata = report.get('report_metadata', {})
+    if not isinstance(metadata, dict):
+        return [f'{stage} report_metadata 结构无效']
+    issues = []
+    if metadata.get('batch_id') != batch_id:
+        issues.append(f'{stage} 批次不匹配或缺失')
+    if metadata.get('stage') != stage:
+        issues.append(f'{stage} 阶段不匹配或缺失')
+    folder = '最终产物' if stage == 'A4' else '中间产物'
+    prefix = 'ALL_questions_FIXED' if stage == 'A4' else 'ALL_questions'
+    directory = BASE / folder / batch_id
+    candidates = sorted(directory.glob(prefix + '*.json')) if directory.is_dir() else []
+    if stage != 'A4':
+        candidates = [p for p in candidates if not p.name.startswith('ALL_questions_FIXED')]
+    if len(candidates) != 1:
+        issues.append(f'{stage} 当前题库缺失或歧义（{len(candidates)} 个）')
+        return issues
+    source = metadata.get('source_file')
+    if not isinstance(source, str) or not source.strip():
+        issues.append(f'{stage} 缺少 source_file')
+    elif _resolve_report_source(source).resolve() != candidates[0].resolve():
+        issues.append(f'{stage} source_file 不是当前阶段题库')
+    expected = metadata.get('source_sha256')
+    if not isinstance(expected, str) or not re.fullmatch(r'[0-9a-fA-F]{64}', expected):
+        issues.append(f'{stage} 缺少有效 source_sha256')
+    elif expected.lower() != _sha256_file(candidates[0]):
+        issues.append(f'{stage} 题库 SHA256 不匹配')
+    return issues
+
+
+def _strict_a3_a4_binding(batch_id, report, stage):
+    if not isinstance(report, dict):
+        return [f'{stage} 报告结构无效']
+    metadata = report.get('report_metadata', {})
+    declared = str(metadata.get('batch_id') or '').strip()
+    if stage == 'A3' and declared != batch_id:
+        return [f'A3 报告 batch_id={declared or "<缺失>"}，不匹配当前批次 {batch_id}']
+    return []
+
+
+def _a4_chain_issues(batch_id, trace):
+    metadata = trace.get('report_metadata', {}) if isinstance(trace, dict) else {}
+    if not isinstance(metadata, dict):
+        return ['A4 report_metadata 结构无效']
+    directory = BASE / '中间产物' / batch_id
+    inputs = [p for p in directory.glob('ALL_questions*.json')
+              if not p.name.startswith('ALL_questions_FIXED')] if directory.is_dir() else []
+    report_dir = BASE / '质检报告'
+    reports = set(report_dir.glob(f'{batch_id}*质检报告*.json'))
+    sub = report_dir / batch_id
+    if sub.is_dir():
+        reports.update(sub.glob('*.json'))
+    issues = []
+    for label, key, candidates in [('A2 题库', 'a2_input', inputs), ('A3 报告', 'a3_report', list(reports))]:
+        if len(candidates) != 1:
+            issues.append(f'{label} 缺失或歧义')
+            continue
+        path = candidates[0]
+        declared = metadata.get(key + '_file')
+        digest = metadata.get(key + '_sha256')
+        if not isinstance(declared, str) or not declared.strip() or _resolve_report_source(declared).resolve() != path.resolve():
+            issues.append(f'{label} 路径缺失或不匹配')
+        if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-fA-F]{64}', digest) or digest.lower() != _sha256_file(path):
+            issues.append(f'{label} SHA256 缺失或不匹配')
+    if len(reports) == 1:
+        try:
+            qc_path = next(iter(reports))
+            qc = json.loads(qc_path.read_text(encoding='utf-8'))
+            issues.extend(_batch_binding_issues(batch_id, qc, qc_path, 'A3', True))
+        except (OSError, ValueError) as exc:
+            issues.append(f'A3 报告读取失败: {exc}')
+    return issues
+
+
 def find_qc_report(batch_id):
     """查找指定批次的质检报告"""
-    report_dir = WORKSPACE / '质检报告'
+    report_dir = BASE / '质检报告'
     candidates = [
         report_dir / f'{batch_id}_质检报告.json',
         report_dir / f'{batch_id}_质检报告_v3.json',
@@ -244,7 +413,7 @@ def find_qc_report(batch_id):
     return None
 
 
-# ── Bloom 独立重算（评审 §七.14）──
+# ── v2.1 回灌 (2026-10-13): Bloom 独立重算（评审 §七.14，源自 medagentwork-skill v2.1）──
 _BLOOM_LEVELS = ['记忆', '理解', '应用', '分析']
 _BLOOM_ALIASES = {
     '记忆': '记忆', '回忆': '记忆', '识记': '记忆', '记忆型': '记忆',
@@ -257,7 +426,7 @@ _TYPE_DEFAULT_BLOOM = {'A1': '记忆', 'A2': '应用', 'B1': '理解', 'A3': '�
 
 def find_question_bank(batch_id):
     """定位批次题库 JSON（用于 Bloom 独立重算）。"""
-    for base in (WORKSPACE / '最终产物' / batch_id, WORKSPACE / '中间产物' / batch_id):
+    for base in (BASE / '最终产物' / batch_id, BASE / '中间产物' / batch_id):
         if not base.is_dir():
             continue
         for name in ('ALL_questions_FIXED.json', 'ALL_questions.json'):
@@ -270,14 +439,14 @@ def find_question_bank(batch_id):
     return None
 
 
-def recompute_bloom_from_qbank(batch_id):
+def recompute_bloom_from_qbank(batch_id, filepath=None):
     """从题库 JSON 独立重算 Bloom 分布，返回 (distribution|None, error|None)。
 
-    门禁此前只读 A3_质检报告.json 里 LLM 自述的 bloom_distribution —— 属"数据来源
-    仍是 LLM 自述"。本函数用题目自带的 bloom_level 字段（缺失时按题型映射兜底）
-    机械重算，供门禁与自述值交叉验证。
+    门禁此前只读质检报告里 LLM 自述的 bloom_distribution —— 数据来源仍是自述。
+    本函数用题目自带的 bloom_level 字段（缺失时按题型映射兜底）机械重算，
+    供门禁与自述值交叉验证。
     """
-    qb = find_question_bank(batch_id)
+    qb = filepath or find_question_bank(batch_id)
     if not qb:
         return None, '未找到题库 JSON'
     try:
@@ -315,14 +484,35 @@ def recompute_bloom_from_qbank(batch_id):
 # GATE-A2: Agent 2 产出门禁
 # ═══════════════════════════════════════
 
-def gate_agent2(batch_id):
+def gate_agent2(batch_id, batch_data=None):
     """
     HC-12 强制门禁：Agent 2 产物必须通过 validate_options.py
     FAIL == 0 → 放行
     FAIL > 0  → BLOCKED
     无报告     → BLOCKED（视为未执行）
     """
-    report_path = find_validate_report(batch_id)
+    types = infer_product_types(batch_id, batch_data or {})
+    if types == {PRODUCT_REVIEW_MATERIAL}:
+        return {
+            'gate': 'GATE-A2',
+            'status': 'PASS',
+            'skipped': True,
+            'reason': '复习资料批次无题库产物，GATE-A2 不适用（SKIP，不作为通过证据）',
+        }
+
+    mode_error = _binding_mode_error(batch_id, batch_data)
+    if mode_error:
+        return {'gate': 'GATE-A2', 'status': 'BLOCKED', 'reason': mode_error}
+    strict = _is_strict_batch(batch_id, batch_data or {})
+    if strict:
+        report_dir = BASE / 'reports' / 'validate'
+        reports = [p for p in report_dir.glob(f'validate_options_report_*{batch_id}*.json')
+                   if not p.stem.endswith('_A4') and re.search(rf'{re.escape(batch_id)}(?!\d)', p.stem)]
+        if len(reports) != 1:
+            return {'gate': 'GATE-A2', 'status': 'BLOCKED', 'reason': 'A2 报告缺失或存在歧义'}
+        report_path = reports[0]
+    else:
+        report_path = find_validate_report(batch_id)
     if not report_path:
         return {
             'gate': 'GATE-A2',
@@ -342,6 +532,16 @@ def gate_agent2(batch_id):
         }
 
     summary = report.get('summary', {})
+    binding_issues = _batch_binding_issues(
+        batch_id, report, report_path, 'A2', _is_strict_batch(batch_id, batch_data or {})
+    )
+    if binding_issues:
+        return {
+            'gate': 'GATE-A2',
+            'status': 'BLOCKED',
+            'reason': '证据绑定失败: ' + '；'.join(binding_issues),
+            'report_path': str(report_path),
+        }
     total_fail = summary.get('fail', -1)
 
     if total_fail == 0:
@@ -381,6 +581,17 @@ def gate_agent3(batch_id, batch_data):
     if not normalized:
         return {'gate': 'GATE-A3', 'status': 'BLOCKED', 'reason': '批次数据结构无法解析'}
 
+    if infer_product_types(batch_id, batch_data) == {PRODUCT_REVIEW_MATERIAL}:
+        return {
+            'gate': 'GATE-A3',
+            'status': 'PASS',
+            'skipped': True,
+            'reason': '复习资料批次无题库产物，GATE-A3 不适用（SKIP，不作为通过证据）',
+        }
+
+    mode_error = _binding_mode_error(batch_id, batch_data)
+    if mode_error:
+        return {'gate': 'GATE-A3', 'status': 'BLOCKED', 'reason': mode_error}
     batch_steps = normalized['steps']
     agent3 = batch_steps.get('AGENT3', {})
 
@@ -398,7 +609,18 @@ def gate_agent3(batch_id, batch_data):
     issues_text = str(agent3.get('issues', ''))
 
     # 尝试从质检报告 JSON 读取 D20 分数
-    qc_report_path = find_qc_report(batch_id)
+    strict = _is_strict_batch(batch_id, batch_data)
+    if strict:
+        report_dir = BASE / '质检报告'
+        reports = set(report_dir.glob(f'{batch_id}*质检报告*.json'))
+        sub = report_dir / batch_id
+        if sub.is_dir():
+            reports.update(sub.glob('*.json'))
+        if len(reports) != 1:
+            return {'gate': 'GATE-A3', 'status': 'BLOCKED', 'reason': 'A3 报告缺失或存在歧义'}
+        qc_report_path = next(iter(reports))
+    else:
+        qc_report_path = find_qc_report(batch_id)
     qc_gate_decision = ''
     d20_score = None
     bloom_data = None
@@ -409,6 +631,17 @@ def gate_agent3(batch_id, batch_data):
             with open(qc_report_path, 'r', encoding='utf-8') as f:
                 qc_report = json.load(f)
 
+            # 权威 gate_decision 优先取自质检报告（report_metadata 或顶层）
+            binding_issues = _batch_binding_issues(
+                batch_id, qc_report, qc_report_path, 'A3', strict
+            )
+            if binding_issues:
+                return {
+                    'gate': 'GATE-A3',
+                    'status': 'BLOCKED',
+                    'reason': '证据绑定失败: ' + '；'.join(binding_issues),
+                    'qc_report': str(qc_report_path),
+                }
             # 权威 gate_decision 优先取自质检报告（report_metadata 或顶层）
             md = qc_report.get('report_metadata', {})
             qc_gate_decision = str(md.get('gate_decision', qc_report.get('gate_decision', '')) or '')
@@ -448,6 +681,8 @@ def gate_agent3(batch_id, batch_data):
             overall_score = qc_report.get('overall_score', qc_report.get('score', None))
 
         except Exception as e:
+            if strict:
+                return {'gate': 'GATE-A3', 'status': 'BLOCKED', 'reason': f'质检报告解析失败: {e}'}
             print(f'  ⚠️ 质检报告解析失败: {qc_report_path} ({e})')
 
     if qc_gate_decision:
@@ -545,8 +780,8 @@ def gate_agent3(batch_id, batch_data):
 
     # ── Bloom 门禁检查 ──
     bloom_issues = []
-    actual = {}
     if bloom_data:
+        actual = {}
         for key in ['记忆', '理解', '应用', '分析']:
             val = bloom_data.get(key, '0%')
             if isinstance(val, str):
@@ -561,52 +796,17 @@ def gate_agent3(batch_id, batch_data):
             deviations[key] = abs(actual.get(key, 0) - target_bloom.get(key, 0))
 
         max_dev = max(deviations.values())
-        bloom_max = get_number('bloom_deviation_max', 15)  # 阈值取自 pipeline.yaml
 
-        if max_dev > bloom_max:
+        # v2.1 回灌: 阈值取自 pipeline.yaml（缺失回退内置默认 15）
+        bloom_dev_max = get_number('bloom_deviation_max', 15)
+        if max_dev > bloom_dev_max:
             dev_detail = ', '.join(f'{k}=Δ{deviations[k]:.1f}%' for k in sorted(deviations, key=deviations.get, reverse=True)[:2])
             bloom_issues.append({
                 'gate_sub': 'GATE-A3-BLOOM',
                 'status': 'BLOCKED',
-                'reason': f'Bloom认知层级偏差{max_dev:.1f}% > {bloom_max:g}%阈值（{dev_detail}）。必须回退Agent 2重构。',
+                'reason': f'Bloom认知层级偏差{max_dev:.1f}% > {bloom_dev_max:g}%阈值（{dev_detail}）。必须回退Agent 2重构。',
                 'rule': 'Bloom门禁规则 (batch011教训: 记忆54.1%未阻断)',
             })
-
-    # ── Bloom 独立重算交叉验证（评审 §七.14）──
-    # 上面 bloom_data 取自 A3_质检报告.json —— 属 LLM 自述数据。此处用题库 JSON
-    # 独立重算一遍 Bloom 分布，两者偏差超过容忍度即 BLOCKED。
-    # 这把 Bloom 门禁从"读 LLM 自述"升级为"确定性重算 + 自述交叉验证"。
-    recompute_issues = []
-    recomputed, recompute_err = recompute_bloom_from_qbank(batch_id)
-    recompute_tolerance = get_number('bloom_recompute_tolerance', 5)
-    if recomputed and bloom_data:
-        mismatch = {lv: abs(recomputed.get(lv, 0) - actual.get(lv, 0)) for lv in _BLOOM_LEVELS}
-        worst = max(mismatch.values()) if mismatch else 0.0
-        if worst > recompute_tolerance:
-            detail = ', '.join(
-                f'{lv} 自述{actual.get(lv, 0):.1f}%/重算{recomputed.get(lv, 0):.1f}%'
-                for lv in _BLOOM_LEVELS if mismatch[lv] > recompute_tolerance
-            )
-            recompute_issues.append({
-                'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
-                'status': 'BLOCKED',
-                'reason': (f'Bloom 分布自述值与题库重算值最大偏差 {worst:.1f}% > '
-                           f'{recompute_tolerance:g}%（{detail}）。质检报告 Bloom 数据与题库不一致，不可放行。'),
-                'rule': 'Bloom 独立重算交叉验证（评审 §七.14）',
-            })
-        else:
-            recompute_issues.append({
-                'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
-                'status': 'PASS',
-                'reason': f'Bloom 自述值与题库重算值最大偏差 {worst:.1f}% ≤ {recompute_tolerance:g}%，交叉验证通过',
-            })
-    else:
-        # 题库缺失时不阻断（fail-closed 已由 NO-BLOOM 覆盖），仅记录可诊断信息
-        recompute_issues.append({
-            'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
-            'status': 'SKIPPED',
-            'reason': f'无法独立重算 Bloom（{recompute_err or "无 bloom_data"}），已跳过交叉验证',
-        })
 
     # ── v2.0 (2026-08-20 审查修复): fail-closed —— 无证据不放行 ──
     # 与 GATE-A2"无报告即 BLOCKED"对齐（此前空壳 AGENT3 步骤无任何 QC 数据也判 PASS）。
@@ -628,6 +828,43 @@ def gate_agent3(batch_id, batch_data):
             'gate_sub': 'GATE-A3-NO-BLOOM',
             'status': 'BLOCKED',
             'reason': '质检报告缺失 Bloom 分布数据，fail-closed 不放行',
+        })
+
+    # ── v2.1 回灌 (2026-10-13): Bloom 独立重算交叉验证（评审 §七.14）──
+    # 上面 bloom_data 取自质检报告 —— 属 LLM 自述数据。此处用题库 JSON 独立重算
+    # 一遍 Bloom 分布，两者偏差超过容忍度即 BLOCKED。这把 Bloom 门禁从
+    # 「读 LLM 自述」升级为「确定性重算 + 自述交叉验证」。
+    recompute_issues = []
+    bound_qbank = _resolve_report_source(qc_report['report_metadata']['source_file']) if strict else None
+    recomputed, recompute_err = recompute_bloom_from_qbank(batch_id, bound_qbank)
+    recompute_tolerance = get_number('bloom_recompute_tolerance', 5)
+    if recomputed and bloom_data:
+        mismatch = {lv: abs(recomputed.get(lv, 0) - actual.get(lv, 0)) for lv in _BLOOM_LEVELS}
+        worst = max(mismatch.values()) if mismatch else 0.0
+        if worst > recompute_tolerance:
+            detail = ', '.join(
+                f'{lv} 自述{actual.get(lv, 0):.1f}%/重算{recomputed.get(lv, 0):.1f}%'
+                for lv in _BLOOM_LEVELS if mismatch[lv] > recompute_tolerance
+            )
+            recompute_issues.append({
+                'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
+                'status': 'BLOCKED',
+                'reason': (f'Bloom 分布自述值与题库重算值最大偏差 {worst:.1f}% > '
+                           f'{recompute_tolerance:g}%（{detail}）。质检报告 Bloom 数据与题库不一致，不可放行。'),
+                'rule': 'Bloom 独立重算交叉验证（v2.1 回灌）',
+            })
+        else:
+            recompute_issues.append({
+                'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
+                'status': 'PASS',
+                'reason': f'Bloom 自述值与题库重算值最大偏差 {worst:.1f}% ≤ {recompute_tolerance:g}%，交叉验证通过',
+            })
+    else:
+        # 题库缺失时不阻断（fail-closed 已由 NO-BLOOM 覆盖），仅记录可诊断信息
+        recompute_issues.append({
+            'gate_sub': 'GATE-A3-BLOOM-RECOMPUTE',
+            'status': 'SKIPPED',
+            'reason': f'无法独立重算 Bloom（{recompute_err or "无 bloom_data"}），已跳过交叉验证',
         })
 
     # ── 汇总 GATE-A3 结果 ──
@@ -667,6 +904,18 @@ def gate_agent4(batch_id, batch_data):
     if not normalized:
         return {'gate': 'GATE-A4', 'status': 'BLOCKED', 'reason': '批次数据结构无法解析'}
 
+    types = infer_product_types(batch_id, batch_data)
+    if types == {PRODUCT_REVIEW_MATERIAL}:
+        return {
+            'gate': 'GATE-A4',
+            'status': 'PASS',
+            'skipped': True,
+            'reason': '复习资料批次无题库产物，GATE-A4 不适用（SKIP，不作为通过证据）',
+        }
+
+    mode_error = _binding_mode_error(batch_id, batch_data)
+    if mode_error:
+        return {'gate': 'GATE-A4', 'status': 'BLOCKED', 'reason': mode_error}
     batch_steps = normalized['steps']
     agent4 = batch_steps.get('AGENT4', {})
 
@@ -679,7 +928,22 @@ def gate_agent4(batch_id, batch_data):
 
     issues = []
 
-    # 检查追溯日志是否存在
+    final_dir = BASE / '最终产物' / batch_id
+    if _is_strict_batch(batch_id, batch_data):
+        trace_files = list(final_dir.glob('*追溯日志*.json')) if final_dir.exists() else []
+        binding_issues = []
+        if len(trace_files) != 1:
+            binding_issues.append('A4 追溯日志缺失或存在歧义')
+        else:
+            try:
+                trace_data = json.loads(trace_files[0].read_text(encoding='utf-8'))
+                binding_issues = _batch_binding_issues(batch_id, trace_data, trace_files[0], 'A4', True)
+                binding_issues.extend(_a4_chain_issues(batch_id, trace_data))
+            except (OSError, ValueError) as e:
+                binding_issues.append(f'A4 追溯日志读取失败: {e}')
+        if binding_issues:
+            issues.append({'gate_sub': 'GATE-A4-BINDING', 'status': 'BLOCKED',
+                           'reason': '；'.join(binding_issues)})
     output_str = agent4.get('output', '')
     if '追溯日志' not in output_str and 'trace_log' not in str(agent4.get('trace_log', '')):
         issues.append({
@@ -690,7 +954,7 @@ def gate_agent4(batch_id, batch_data):
 
     # 检查 source_file_synced (HC-13)
     # 追溯日志 JSON 中应有此字段
-    final_dir = WORKSPACE / '最终产物' / batch_id
+    final_dir = BASE / '最终产物' / batch_id
     trace_files = list(final_dir.glob('*追溯日志*.json')) if final_dir.exists() else []
     source_synced = False
     trace_checked = False
@@ -747,6 +1011,12 @@ def gate_agent4(batch_id, batch_data):
     # （由 `python scripts/qbank.py export-md` 生成，用户可读最终交付格式）
     for jf in json_files:
         md_expected = jf.with_suffix('.md')
+        # 押题卷批次的交付 MD 命名可不同（如「…期末押题卷.md」），
+        # 接受同目录含“押题”的 MD 作为等价交付物。
+        if not md_expected.exists() and PRODUCT_PREDICTION_PAPER in types:
+            alternatives = sorted(final_dir.glob('*押题*.md')) if final_dir.exists() else []
+            if alternatives:
+                md_expected = alternatives[0]
         if not md_expected.exists():
             issues.append({
                 'gate_sub': 'GATE-A4-MD',
@@ -791,7 +1061,190 @@ def gate_agent4(batch_id, batch_data):
 # GATE-FINAL: 终审门禁
 # ═══════════════════════════════════════
 
-def gate_final(batch_id, batch_data):
+# T6 (2026-10-23): 学习价值评分卡 advisory 门禁
+SUBJECT_SCORECARD_SLUGS = {
+    '耳鼻咽喉头颈外科学': 'ent',
+}
+
+
+def find_review_scorecard(batch_id, batch_data):
+    """定位 review_scorecard_<subject>_*.json。"""
+    scorecard_dir = BASE / 'reports' / 'validate'
+    subject = str(batch_data.get('subject', '') or '')
+    slug = SUBJECT_SCORECARD_SLUGS.get(subject)
+    if slug:
+        cands = sorted(scorecard_dir.glob(f'review_scorecard_{slug}_*.json'))
+        if cands:
+            return cands[-1]
+    # 无 slug 映射时，只有一个评分卡才回退使用，避免误读别的科目
+    cands = sorted(scorecard_dir.glob('review_scorecard_*.json'))
+    return cands[-1] if len(cands) == 1 else None
+
+
+def gate_learning_value(batch_id, batch_data, mode='advisory'):
+    """GATE-FINAL-LEARNING-VALUE：读取 12 维评分卡。
+
+    mode=off      → 返回 None，完全不影响现有门禁
+    mode=advisory → overall<3.5 或关键维度<3.5 → WARN；其余 PASS
+    mode=enforce  → 缺评分卡 / overall<3.8 / 关键维度<3.5 / blocking_issues → BLOCKED
+    """
+    if mode == 'off':
+        return None
+    path = find_review_scorecard(batch_id, batch_data)
+    if not path:
+        status = 'WARN' if mode == 'advisory' else 'BLOCKED'
+        return {
+            'gate_sub': 'GATE-FINAL-LEARNING-VALUE',
+            'status': status,
+            'reason': f'未找到 review_scorecard（{batch_id}/{batch_data.get("subject", "?")}）',
+        }
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            card = json.load(f)
+    except Exception as e:
+        return {
+            'gate_sub': 'GATE-FINAL-LEARNING-VALUE',
+            'status': 'WARN' if mode == 'advisory' else 'BLOCKED',
+            'reason': f'评分卡解析失败: {type(e).__name__}: {e}',
+            'scorecard_path': str(path),
+        }
+
+    overall = float(card.get('overall', -1))
+    dims = card.get('dimensions') or []
+    critical = [d for d in dims if int(d.get('id', 0)) in (2, 3, 8)]
+    low = [d for d in critical if float(d.get('score', 0)) < 3.5]
+    hard = [d for d in critical if float(d.get('score', 0)) < 3.0]
+    blocking = list(card.get('blocking_issues') or [])
+    warnings = list(card.get('warnings') or [])
+
+    reason = (f'overall={overall:.2f}/5，关键维度 '
+              f'{", ".join(f"{d.get('id')}:{d.get('score')}" for d in critical)}，'
+              f'warnings={len(warnings)}')
+    if mode == 'advisory':
+        status = 'WARN' if (overall < 3.5 or low or blocking) else 'PASS'
+    else:
+        status = 'BLOCKED' if (overall < 3.8 or low or hard or blocking) else 'PASS'
+    return {
+        'gate_sub': 'GATE-FINAL-LEARNING-VALUE',
+        'status': status,
+        'reason': reason,
+        'scorecard_path': str(path),
+        'overall': overall,
+        'warnings': warnings,
+        'blocking_issues': blocking,
+    }
+
+
+def gate_item_learning_value(batch_id, batch_data):
+    """HC-24: 新批次（item_schema_version=2.0）的题目学习价值层强制门禁。
+
+    旧批次无 item_schema_version → 显式 SKIPPED，不追溯。
+    新批次跑 scripts/check_learning_value.py，并校验：
+      FAIL=0；逐项覆盖=100%；错误认知覆盖=100%；
+      source_quote_exact_rate>=95%；anchor_verified_rate>=80%。
+    """
+    schema_version = str(batch_data.get('item_schema_version') or '')
+    required = (_is_strict_batch(batch_id, batch_data) or schema_version == '2.0'
+                or bool(batch_data.get('learning_value_required')))
+    if not required:
+        return {
+            'gate_sub': 'GATE-ITEM-LEARNING-VALUE',
+            'status': 'PASS',
+            'skipped': True,
+            'reason': f'批次未声明 item_schema_version=2.0（当前={schema_version or "缺失"}），HC-24 跳过，不追溯旧产物',
+        }
+
+    # 仅题库产物适用 HC-24，显式产物类型优先。
+    final_dir = BASE / '最终产物' / batch_id
+    if PRODUCT_QUESTION_BANK not in infer_product_types(batch_id, batch_data):
+        return {
+            'gate_sub': 'GATE-ITEM-LEARNING-VALUE',
+            'status': 'PASS',
+            'skipped': True,
+            'reason': '无 AGENT2 步骤且无最终题库目录，判定为非题库批次，HC-24 跳过',
+        }
+
+    candidates = sorted(final_dir.glob('ALL_questions_FIXED*.json')) if final_dir.exists() else []
+    if not candidates:
+        return {
+            'gate_sub': 'GATE-ITEM-LEARNING-VALUE',
+            'status': 'BLOCKED',
+            'reason': f'HC-24: 缺少最终题库 JSON（{final_dir}）',
+        }
+    target = candidates[0]
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            report_path = Path(td) / 'learning_value.json'
+            proc = subprocess.run(
+                [sys.executable, str(SKILL_SCRIPTS / 'check_learning_value.py'),
+                 '--file', str(target), '--batch', str(batch_id), '--out', str(report_path)],
+                capture_output=True, text=True, timeout=300,
+                encoding='utf-8', errors='replace')
+            if proc.returncode != 0:
+                raise ValueError(f'校验器退出码 {proc.returncode}: {(proc.stderr or proc.stdout or "")[-300:]}')
+            report = json.loads(report_path.read_text(encoding='utf-8'))
+            if report.get('batch') != batch_id or report.get('input_sha256') != hashlib.sha256(target.read_bytes()).hexdigest():
+                raise ValueError('报告批次或题库哈希不匹配')
+            summary = report.get('summary') or {}
+            questions = json.loads(target.read_text(encoding='utf-8'))
+    except Exception as e:
+        return {
+            'gate_sub': 'GATE-ITEM-LEARNING-VALUE',
+            'status': 'BLOCKED',
+            'reason': f'HC-24: 校验执行或报告无效: {type(e).__name__}: {e}',
+        }
+
+    fail = int(summary.get('fail', 0) or 0)
+    per_cov = float(summary.get('per_option_coverage', 0) or 0)
+    misc_cov = float(summary.get('misconception_coverage', 0) or 0)
+    src_exact = float(summary.get('source_quote_exact_rate', 0) or 0)
+    quote_verified = float(summary.get('quote_verified_rate', 1.0) or 0)
+    mc_conflicts = int(summary.get('misconception_id_conflicts', 0) or 0)
+    anchor_verified = float(summary.get('anchor_verified_rate', 0) or 0)
+    min_src = float(get_number('learning_value_min_source_exact', 0.95))
+    min_quote = float(get_number('learning_value_min_quote_verified', 0.95))
+    max_mc = int(get_number('learning_value_max_misconception_conflicts', 0))
+    min_anchor = float(get_number('learning_value_min_anchor_verified', 0.80))
+
+    issues = []
+    if proc.returncode == 1 or fail > 0:
+        issues.append(f'FAIL={fail}（必须为 0）')
+    if per_cov < 1.0:
+        issues.append(f'逐项覆盖={per_cov:.1%}（必须 100%）')
+    if misc_cov < 1.0:
+        issues.append(f'错误认知覆盖={misc_cov:.1%}（必须 100%）')
+    if src_exact < min_src:
+        issues.append(f'原文标注 exact 率={src_exact:.1%}（要求≥{min_src:.0%}）')
+    if quote_verified < min_quote:
+        issues.append(f'引文实证率={quote_verified:.1%}（要求≥{min_quote:.0%}，禁止自报 exact）')
+    if mc_conflicts > max_mc:
+        issues.append(f'错误认知 ID 冲突={mc_conflicts}（要求≤{max_mc}，同一 ID 必须同一释义）')
+    if anchor_verified < min_anchor:
+        issues.append(f'锚点已核率={anchor_verified:.1%}（要求≥{min_anchor:.0%}）')
+    if isinstance(questions, list):
+        missing_lv = [q.get('id') for q in questions if isinstance(q, dict) and not q.get('learning_value')]
+        if missing_lv:
+            issues.append(f'{len(missing_lv)} 题缺 learning_value（示例：{missing_lv[:3]}）')
+
+    if issues:
+        return {
+            'gate_sub': 'GATE-ITEM-LEARNING-VALUE',
+            'status': 'BLOCKED',
+            'reason': f'HC-24 学习价值层未达标: {"; ".join(issues)}',
+            'summary': summary,
+        }
+
+    return {
+        'gate_sub': 'GATE-ITEM-LEARNING-VALUE',
+        'status': 'PASS',
+        'reason': (f'HC-24 通过：FAIL=0，逐项={per_cov:.1%}，错误认知={misc_cov:.1%}，'
+                   f'标注 exact={src_exact:.1%}，引文实证={quote_verified:.1%}，'
+                   f'ID 冲突={mc_conflicts}，锚点已核={anchor_verified:.1%}'),
+        'summary': summary,
+    }
+
+
+def gate_final(batch_id, batch_data, learning_value_mode='off'):
     """
     终审前全量检查: HC-9/10/11 + JSON完整性 + Bloom终态
 
@@ -804,6 +1257,8 @@ def gate_final(batch_id, batch_data):
     batch_steps = normalized['steps']
     agent5 = batch_steps.get('AGENT5', {})
     final_review = normalized['final_review']
+    lv_result = gate_learning_value(batch_id, batch_data, learning_value_mode)
+    item_lv_result = gate_item_learning_value(batch_id, batch_data)
 
     # 已签收批次：跳过 HC-9/10/11（人工审核已覆盖）
     batch_status = batch_data.get('status', '')
@@ -812,60 +1267,93 @@ def gate_final(batch_id, batch_data):
             'gate': 'GATE-FINAL',
             'status': 'PASS',
             'reason': f'批次已签收 ({batch_status})，人工审核已覆盖终审',
+            'sub_gates': [g for g in (lv_result, item_lv_result) if g],
         }
 
     issues = []
+    warn_gates = []
 
-    # HC-9: 术语附录
-    hc9 = final_review.get('hc9', '')
-    if not ('OK' in str(hc9) or 'PASS' in str(hc9) or '已生成' in str(hc9)):
-        # 也检查 agent5 的 hc_checks
-        agent5_hc = agent5.get('hc_checks', agent5.get('hc9_terminology', ''))
-        if not ('PASS' in str(agent5_hc) or '已生成' in str(agent5_hc)):
+    # ── 门禁适用范围（2026-10-23）：按产物类型决定管辖权 ──
+    types = infer_product_types(batch_id, batch_data)
+    needs_review = PRODUCT_REVIEW_MATERIAL in types
+    needs_json = bool(types & {PRODUCT_QUESTION_BANK, PRODUCT_PREDICTION_PAPER})
+
+    if needs_review:
+        # HC-9: 术语附录
+        hc9 = final_review.get('hc9', '')
+        if not ('OK' in str(hc9) or 'PASS' in str(hc9) or '已生成' in str(hc9)):
+            # 也检查 agent5 的 hc_checks
+            agent5_hc = agent5.get('hc_checks', agent5.get('hc9_terminology', ''))
+            if not ('PASS' in str(agent5_hc) or '已生成' in str(agent5_hc)):
+                issues.append({
+                    'gate_sub': 'GATE-FINAL-HC9',
+                    'status': 'BLOCKED',
+                    'reason': 'HC-9: 术语同意异名附录缺失或未通过',
+                })
+
+        # HC-10: 页码真实性
+        hc10 = final_review.get('hc10', '')
+        if not ('OK' in str(hc10) or 'PASS' in str(hc10) or 'no placeholder' in str(hc10)):
             issues.append({
-                'gate_sub': 'GATE-FINAL-HC9',
+                'gate_sub': 'GATE-FINAL-HC10',
                 'status': 'BLOCKED',
-                'reason': 'HC-9: 术语同意异名附录缺失或未通过',
+                'reason': 'HC-10: 页码附录未通过真实性验证（可能含占位符）',
             })
 
-    # HC-10: 页码真实性
-    hc10 = final_review.get('hc10', '')
-    if not ('OK' in str(hc10) or 'PASS' in str(hc10) or 'no placeholder' in str(hc10)):
-        issues.append({
-            'gate_sub': 'GATE-FINAL-HC10',
-            'status': 'BLOCKED',
-            'reason': 'HC-10: 页码附录未通过真实性验证（可能含占位符）',
-        })
-
-    # HC-11: 大纲页码
-    # v2.0 (2026-08-20 审查修复): 空串不再视为通过（此前 hc11='' 直接放行，fail-open）
-    hc11 = final_review.get('hc11', '')
-    if not ('OK' in str(hc11) or 'PASS' in str(hc11)):
-        issues.append({
-            'gate_sub': 'GATE-FINAL-HC11',
-            'status': 'BLOCKED',
-            'reason': 'HC-11: 大纲来源页码标注缺失或未通过',
-        })
+        # HC-11: 大纲页码
+        # v2.0 (2026-08-20 审查修复): 空串不再视为通过（此前 hc11='' 直接放行，fail-open）
+        hc11 = final_review.get('hc11', '')
+        if not ('OK' in str(hc11) or 'PASS' in str(hc11)):
+            issues.append({
+                'gate_sub': 'GATE-FINAL-HC11',
+                'status': 'BLOCKED',
+                'reason': 'HC-11: 大纲来源页码标注缺失或未通过',
+            })
+    else:
+        for code, label in (('GATE-FINAL-HC9', 'HC-9 术语附录'),
+                            ('GATE-FINAL-HC10', 'HC-10 页码真实性'),
+                            ('GATE-FINAL-HC11', 'HC-11 大纲页码')):
+            warn_gates.append({
+                'gate_sub': code,
+                'status': 'SKIPPED',
+                'reason': f'{label}：非复习资料批次（{", ".join(sorted(types))}），不适用',
+            })
 
     # JSON 有效性
     # v2.0 (2026-08-20 审查修复): 必须为真实布尔 true —— 字符串 'False'/'True'
     # 此前恒真通过（真实数据 batch014 就是字符串），终审 JSON 检查形同虚设
-    json_valid = final_review.get('json_valid', None)
-    if not (isinstance(json_valid, bool) and json_valid):
-        issues.append({
+    if needs_json:
+        json_valid = final_review.get('json_valid', None)
+        if not (isinstance(json_valid, bool) and json_valid):
+            issues.append({
+                'gate_sub': 'GATE-FINAL-JSON',
+                'status': 'BLOCKED',
+                'reason': f'最终产物 JSON 有效性未证实（json_valid={json_valid!r}，必须为布尔 true）',
+            })
+    else:
+        warn_gates.append({
             'gate_sub': 'GATE-FINAL-JSON',
-            'status': 'BLOCKED',
-            'reason': f'最终产物 JSON 有效性未证实（json_valid={json_valid!r}，必须为布尔 true）',
+            'status': 'SKIPPED',
+            'reason': f'非题库/押题卷批次（{", ".join(sorted(types))}），JSON 有效性检查不适用',
         })
 
     # v2.0 (2026-08-20 审查修复): HC-10 机械校验接入 —— 此前终审只匹配自报字符串
     # （'OK'/'PASS'），verify_page_numbers.py 从未被门禁实际调用。现在对可解析科目
     # 的复习资料实跑附录占位符检测：exit 1 → BLOCKED；脚本异常/文件缺失 → WARN 提示。
-    warn_gates = []
+    if lv_result:
+        if lv_result.get('status') == 'BLOCKED':
+            issues.append(lv_result)
+        else:
+            warn_gates.append(lv_result)
+    if item_lv_result:
+        if item_lv_result.get('status') == 'BLOCKED':
+            issues.append(item_lv_result)
+        else:
+            warn_gates.append(item_lv_result)
     subject = batch_data.get('subject', '')
-    if subject and subject in ('内科学', '儿科学', '外科学', '神经病学', '精神病学',
-                               '皮肤性病学', '中医学', '医患沟通'):
-        review_dir = WORKSPACE / '复习资料'
+    if needs_review and subject and subject in ('内科学', '儿科学', '外科学', '神经病学', '精神病学',
+                                                 '皮肤性病学', '中医学', '医患沟通'):
+        review_dir = BASE / '复习资料'
         review_files = sorted(review_dir.glob(f'{subject}_*主复习资料.md')) \
             if review_dir.exists() else []
         if not review_files:
@@ -874,7 +1362,7 @@ def gate_final(batch_id, batch_data):
         if review_files:
             try:
                 proc = subprocess.run(
-                    [sys.executable, str(BASE / 'verify_page_numbers.py'),
+                    [sys.executable, str(SKILL_SCRIPTS / 'verify_page_numbers.py'),
                      '--check-appendix', subject],
                     capture_output=True, text=True, timeout=120,
                     encoding='utf-8', errors='replace')
@@ -923,10 +1411,10 @@ def gate_final(batch_id, batch_data):
 # 回归检查 (P2'-1: regression_db.json)
 # ═══════════════════════════════════════
 
-REGRESSION_DB = BASE / 'regression_db.json'
+REGRESSION_DB = SKILL_SCRIPTS / 'regression_db.json'
 if not REGRESSION_DB.exists():
-    # 兼容用户工作区自定义回归库
-    REGRESSION_DB = WORKSPACE / 'regression_db.json'
+    # 兼容历史根目录位置（2026-06-24 已迁移至 scripts/）
+    REGRESSION_DB = BASE / 'regression_db.json'
 
 
 def load_regression_db():
@@ -965,8 +1453,9 @@ def run_regression_checks(batch_id, stage):
             if script_name == 'python':
                 script_path = script.split()[1] if len(script.split()) > 1 else None
                 if script_path:
-                    sp = Path(script_path)
-                    full_path = (WORKSPACE / sp) if (WORKSPACE / sp).exists() else (BASE / sp.name)
+                    full_path = BASE / script_path
+                    if not full_path.exists():
+                        full_path = SKILL_SCRIPTS / Path(script_path).name
                     if not full_path.exists():
                         results.append({
                             'gate': f'REG-{rule_id}',
@@ -1004,17 +1493,48 @@ def run_regression_checks(batch_id, stage):
 # 自动阶段检测 (P2'-3: --stage auto)
 # ═══════════════════════════════════════
 
-STAGE_ORDER = ['agent2_done', 'agent3_done', 'agent4_done', 'final']
+STAGE_ORDER = ['agent2_done', 'agent3_done', 'agent4_done', 'learning_value', 'final']
 STAGE_STEP_KEY = {
     'agent2_done': ['AGENT2', 'AGENT2_V2', 'AGENT2_V3', 'AGENT2_SUPP'],
     'agent3_done': ['AGENT3', 'AGENT3_V2', 'AGENT3_V3'],
     'agent4_done': ['AGENT4', 'AGENT4_V2', 'AGENT4_V3'],
+    'learning_value': [],
     'final': ['AGENT5', 'COMPLETED'],
 }
 
 
+def stage_sequence(batch_id, batch_data) -> list[str]:
+    """按产物类型与 schema 版本返回应执行的阶段序列（2026-10-23）。
+
+    - 复习资料批次：只有 final（HC-9/10/11 等资料门禁）
+    - 题库/押题卷批次：A2→A3→A4；schema v2 再插 learning_value；最后 final
+    """
+    types = infer_product_types(batch_id, batch_data)
+    seq: list[str] = []
+    if is_question_bearing(types):
+        seq += ['agent2_done', 'agent3_done', 'agent4_done']
+        schema_version = str(batch_data.get('item_schema_version') or '')
+        if schema_version == '2.0' or batch_data.get('learning_value_required'):
+            seq.append('learning_value')
+    seq.append('final')
+    return seq
+
+
+def _stage_completed(batch, normalized_steps, gate_results, stage) -> bool:
+    if stage == 'learning_value':
+        return str(gate_results.get('GATE-LV', {}).get('status', '')) == 'PASS'
+    if stage == 'final':
+        return (batch.get('status') == 'APPROVED'
+                or str(gate_results.get('GATE-FINAL', {}).get('status', '')) == 'PASS')
+    for sk in STAGE_STEP_KEY.get(stage, []):
+        step_data = normalized_steps.get(sk, {})
+        if isinstance(step_data, dict) and step_data.get('status') == 'COMPLETED':
+            return True
+    return False
+
+
 def detect_current_stage(state, batch_id):
-    """从 workflow_state.json 自动推断当前应检查的阶段（使用标准化数据）"""
+    """从 workflow_state.json 自动推断当前应检查的阶段（2026-10-23 按产物类型分流）"""
     if batch_id not in state:
         return 'agent2_done'
 
@@ -1022,34 +1542,30 @@ def detect_current_stage(state, batch_id):
     if not isinstance(batch, dict):
         return 'agent2_done'
 
+    if batch.get('status') == 'APPROVED':
+        return None
+
     normalized = normalize_batch(batch)
     if not normalized:
         return 'agent2_done'
 
     steps = normalized['steps']
+    gate_results = batch.get('gate_results') if isinstance(batch.get('gate_results'), dict) else {}
 
-    # 反向检测：找到最后一个完成的阶段，返回下一个
-    for stage in reversed(STAGE_ORDER):
-        step_keys = STAGE_STEP_KEY.get(stage, [])
-        for sk in step_keys:
-            step_data = steps.get(sk, {})
-            if isinstance(step_data, dict) and step_data.get('status') == 'COMPLETED':
-                idx = STAGE_ORDER.index(stage)
-                if idx + 1 < len(STAGE_ORDER):
-                    return STAGE_ORDER[idx + 1]
-                else:
-                    return None
-
-    # 没有任何步骤完成，但可能有 batch014 风格的扁平数据
-    # 检查是否有最终产物
-    if batch.get('final_product') or batch.get('final_review'):
+    # batch014 风格扁平数据：无 steps 但有终审字段 → 直接终审
+    raw_steps = batch.get('steps') if isinstance(batch.get('steps'), dict) else {}
+    if not raw_steps and (batch.get('final_product') or batch.get('final_review')):
         return 'final'
 
-    # 检查是否有 Agent 2 产出
+    seq = stage_sequence(batch_id, batch)
+    for stage in seq:
+        if not _stage_completed(batch, steps, gate_results, stage):
+            return stage
+
+    # 所有阶段均完成
     if batch.get('agent2_output') or batch.get('agent2_stats'):
         return 'agent2_done'
-
-    return 'agent2_done'
+    return None
 
 
 # ═══════════════════════════════════════
@@ -1064,7 +1580,8 @@ def detect_current_stage(state, batch_id):
 # ═══════════════════════════════════════
 
 
-def run_gate_check(batch_id: str, stage: str, run_regression: bool = True) -> None:
+def run_gate_check(batch_id: str, stage: str, run_regression: bool = True,
+                   learning_value_mode: str = 'off') -> None:
     """执行门禁检查"""
     if TELEMETRY_AVAILABLE:
         log_info(f"Starting gate check for {batch_id}", batch_id=batch_id, stage=stage)
@@ -1115,7 +1632,7 @@ def run_gate_check(batch_id: str, stage: str, run_regression: bool = True) -> No
     # （此前崩溃时不写 HALT 信号、门禁状态不可信），统一受控失败 exit 2。
     try:
         if stage in ('agent2_done', 'all'):
-            r = gate_agent2(batch_id)
+            r = gate_agent2(batch_id, batch_data)
             results.append(r)
             if r['status'] != 'PASS':
                 all_pass = False
@@ -1132,8 +1649,20 @@ def run_gate_check(batch_id: str, stage: str, run_regression: bool = True) -> No
             if r['status'] != 'PASS':
                 all_pass = False
 
+        if stage in ('learning_value',):
+            r = gate_item_learning_value(batch_id, batch_data)
+            wrapped = {
+                'gate': 'GATE-LV',
+                'status': 'PASS' if r.get('status') == 'PASS' else 'BLOCKED',
+                'reason': r.get('reason', ''),
+                'sub_gates': [r],
+            }
+            results.append(wrapped)
+            if wrapped['status'] != 'PASS':
+                all_pass = False
+
         if stage in ('final', 'all'):
-            r = gate_final(batch_id, batch_data)
+            r = gate_final(batch_id, batch_data, learning_value_mode)
             results.append(r)
             if r['status'] != 'PASS':
                 all_pass = False
@@ -1193,18 +1722,18 @@ def run_gate_check(batch_id: str, stage: str, run_regression: bool = True) -> No
     print(f"\n{'─'*60}")
     if all_pass:
         if TELEMETRY_AVAILABLE:
-            log_gate_check(batch_id, stage, 'PASS', details={'all_pass': True})
+            log_gate_check(batch_id, stage, 'PASS', reason='all_pass')
         print(f"  ✅ 门禁检查全部通过 — 可以推进到下一阶段")
         print(f"{'═'*60}\n")
     elif approved_mode:
         if TELEMETRY_AVAILABLE:
-            log_gate_check(batch_id, stage, 'PASS_APPROVED', details={'approved_mode': True})
+            log_gate_check(batch_id, stage, 'PASS_APPROVED', reason='approved_mode')
         print(f"  ℹ️ 已签收批次门禁未通过（参考模式 — 退出码 0，不阻断管线）")
         print(f"{'═'*60}\n")
     else:
         blocked_gates = [r['gate'] for r in results if r['status'] != 'PASS']
         if TELEMETRY_AVAILABLE:
-            log_gate_check(batch_id, stage, 'BLOCKED', details={'blocked_gates': blocked_gates})
+            log_gate_check(batch_id, stage, 'BLOCKED', reason='blocked: ' + ','.join(blocked_gates))
         print(f"  🛑 门禁检查未通过 — 管线已停止。修复后运行:")
         print(f"     python gate_check.py --batch {batch_id} --clear-halt")
         print(f"     [修复问题后]")
@@ -1231,11 +1760,14 @@ def main():
     )
     parser.add_argument('--batch', '-b', required=True, help='批次ID')
     parser.add_argument('--stage', '-s',
-                        choices=['agent2_done', 'agent3_done', 'agent4_done', 'final', 'all', 'auto'],
+                        choices=['agent2_done', 'agent3_done', 'agent4_done', 'learning_value', 'final', 'all', 'auto'],
                         default='auto',
                         help='检查的阶段 (默认 auto: 自动检测当前阶段)')
     parser.add_argument('--clear-halt', action='store_true',
                         help='清除 halt 信号（修复问题后）')
+    parser.add_argument('--learning-value-mode', choices=['off', 'advisory', 'enforce'],
+                        default='off',
+                        help='学习价值评分卡门禁模式（默认 off，不影响现有批次）')
     args = parser.parse_args()
 
     if args.clear_halt:
@@ -1248,7 +1780,7 @@ def main():
         print(f"  ✅ HALT 信号已清除")
         sys.exit(0)
 
-    run_gate_check(args.batch, args.stage)
+    run_gate_check(args.batch, args.stage, learning_value_mode=args.learning_value_mode)
 
 
 if __name__ == '__main__':
