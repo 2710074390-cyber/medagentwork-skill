@@ -79,7 +79,7 @@
 | D20 B1型题专项检查（2026-06-18 新增·batch005 ISSUE-007） | 对 B1 型题组逐组检查：① 共用选项笼统度——≥3 个选项 ≤2 字则标记 should_fix（过于宽泛）；② 答案位置集中度——≥60% 子题答案为同一字母则标记 should_fix；③ 干扰项有效性——每个共用选项至少对组内 1 道子题构成有效干扰（plausibility ≥ 0.3），完全不干扰任何子题的选项标记 should_fix；④ 子题知识点覆盖——组内子题是否考查不同维度。校验脚本：`python validate_options.py --batch {batchID}`（B1-1/B1-2/B1-3 机械化检测） |
 | D21a 考研原题一致性（2026-08-21 新增·HC-18；2026-10-20 并入 HC-22） | 对带 `kaoyan_origin` 的题目**100%** 比对 GoldenSet 源（`GoldenSet/structured/`，按 gs_id 配对）：① 题干知识点与真题一致；② 答案与 `question_bank/kaoyan_answers.json` 的 `answer_recovered` 一致（发现不一致→标记 must_escalate，**不得**建议改真题答案）；③ 数值/诊断标准未被改动；④ mode="改编" 时改编幅度合理；⑤ 元数据完整（gs_id/year/source/mode/answer_confidence），`answer_confidence=low` 一律 must_fix。另统计考研占比（目标≈20%，<15% 提示补充，≥25% 提示原创偏低）。 |
 | D21b 执业医师原题一致性（2026-10-20 新增·HC-22） | 对带 `zhiyi_origin` 的题目**100%** 比对 `question_bank/real_questions/zhiyi_items.jsonl`（按 source_id）：① 题干/选项/答案与源题一致；② 答案与 CMExam 答案一致（冲突 must_escalate，不得擅改）；③ 数值/诊断标准未改动；④ 元数据完整（source_id/source/mode/answer_confidence/license）；⑤ `answer_confidence=medium` 的题 100% 抽检，`low` 一律 must_fix；⑥ 统计执医占比（目标≈20%，15%–25%；`corpus=pdf_paper` 与 `cmexam` 两源均计入该族，均可直接入选）。 |
-| D22 插图引用完整性（2026-09-XX 新增·HC-19，可选） | 仅当调用指令传入含插图的 Markdown 交付物（主复习资料/备考资料 MD，或图片质检任务）时执行：① `![...](...)` 占位符语法正确、alt 符合「图N：图注」；② 引用的图片文件存在；③ 图号全文唯一且连续、无「（此处应有图）」等残留；④ 配图清单条目与占位符一一对应（若传入）。无图片引用/未传 MD 时写 N/A，不影响门禁判定 |
+| D22 插图引用完整性（**2026-11-02 随 HC-19 下线**，编号保留不复用） | **恒记 N/A**。插图管线（占位符/配图清单/images_webp/GATE-A6）已整体退役，新产物不应出现图片引用。若输入含历史插图 MD，仅作提示不判 FAIL、不阻断门禁；图像语法残留不作为质量问题上报 |
 | D23 学习价值层完整性（2026-10-23 新增·HC-24） | 每题必须有 `learning_value`：`correct_rationale`≥60字；`per_option` 覆盖全部选项且每个 `why`≥20字；每个干扰项有 `misconception_id` + `misconception`；`key_takeaway`≥30字。缺项/占位词 → must_fix。 |
 | D24 来源逐字性、错误认知 ID 与反选极性（2026-10-23 新增·HC-24） | `source_quote_status=exact` 时 `source_quote` 必须非空，且（省略号分段后）能在 `teacher_anchor` 中逐字命中，否则 must_fix；`anchor_status=mismatch` → must_escalate；同批次同一 `misconception_id` 出现多种释义 → must_fix（R19）；`polarity=negative` 时 `truth` 必须与 `is_correct` 相反。 |
 
@@ -154,7 +154,7 @@ D19 收敛策略:        [PASS/FAIL] — [简述，≤20字]
 D20 B1型题专项:      [PASS/FAIL] — [简述/如无B1型题写N/A，≤20字]
 D21a 考研原题一致性: [PASS/FAIL] — [简述/如无考研原题写N/A，≤20字]
 D21b 执业医师原题一致性: [PASS/FAIL] — [简述/如无执医原题写N/A，≤20字]
-D22 插图引用完整性:  [PASS/FAIL/N-A] — [无插图交付物写N/A，≤20字]
+D22 插图引用完整性:  [N/A] — [已随 HC-19 下线，恒 N/A，≤20字]
 D23 学习价值层完整性: [PASS/FAIL] — [per_option 覆盖/错误认知/key_takeaway，≤20字]
 D24 来源逐字性与极性: [PASS/FAIL] — [source_quote 逐字/反选题 truth，≤20字]
 ```
@@ -255,7 +255,7 @@ D24 来源逐字性与极性: [PASS/FAIL] — [source_quote 逐字/反选题 tru
       "D20_B1型题专项": { "pass": 0, "fail": 0 },
       "D21a_考研原题一致性": { "pass": 0, "fail": 0 },
       "D21b_执业医师原题一致性": { "pass": 0, "fail": 0, "note": "无执医原题时 N/A" },
-      "D22_插图引用完整性": { "pass": 0, "fail": 0, "note": "无插图交付物时 N/A" },
+      "D22_插图引用完整性": { "pass": 0, "fail": 0, "note": "已随 HC-19 下线，恒 N/A" },
       "D23_学习价值层完整性": { "pass": 0, "fail": 0 },
       "D24_来源逐字性与极性": { "pass": 0, "fail": 0 }
     }

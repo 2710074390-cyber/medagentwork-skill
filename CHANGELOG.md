@@ -5,6 +5,25 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — 2026-11-02
+
+> 清除提示词层的插图残留。v2.2 已移除插图脚本与门禁，但三份提示词仍保留生图/配图清单指令，
+> 形成「文档说已移除、提示词说怎么做」的口径矛盾。本次补齐，并以 `SOUL.md § HC-19（已下线）` 为准。
+
+### 变更（破坏性）
+
+- `references/prompts/Agent5_MedReview_Prompt.md`：删除「配图执行细则（V15）」整节与配图占位段，改为「不配图（HC-19 已下线）」声明；`## 输出、排版及配图` → `## 输出、排版`；交付与报告措辞去掉配图清单；V15 自检废止（编号保留不复用）。
+- `references/prompts/MedMaster_current_prompt.md`：`AGENT6` 移出状态机；`### HC-19` 与 `### 阶段五·五：生图` 两节改为下线声明；终审第 6 条（插图完整性检查）改为「已取消」；终审汇总模板删除「插图：X 张」行。
+- `references/prompts/MedQC_current_prompt.md`：D22（插图引用完整性）改为恒记 N/A，编号保留不复用；维度输出模板与 JSON 键同步。
+- `scripts/quality_gate.py`：`BUNDLED` 集合与 R3 分支移除 `inline_images`（此前会路由到本包不存在的检查项）。
+- `scripts/quality_policy.json`：`release_teaching_plan` 的 description 去掉「配图」字样。
+
+### 说明
+
+- 已交付含图历史产物不追溯、不回改；`references/review-visual-spec.md` 中「不要求配图 / 不生成插图」的否定表述保留。
+- 需要旧插图能力仍请使用 [v2.1](https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.1)，本仓库不恢复该能力。
+- 冒烟测试 `32 passed / 0 failed`。
+
 ## [Unreleased] — 2026-10-31
 
 > 面向首次使用引导：装完即可自检、用内置 3 题示例跑通校验/导出，并把路径、命名与退出码口径统一到可执行状态。

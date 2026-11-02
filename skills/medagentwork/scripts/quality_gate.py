@@ -28,7 +28,7 @@ DEFAULT_POLICY = SKILL_SCRIPTS / "quality_policy.json"
 DEFAULT_SPEC = SKILL_ROOT / "references/quality-gate.md"
 PRODUCT_TYPES = {"question_bank", "prediction_paper", "review_material"}
 BUNDLED = {"quality_policy", "schema", "learning_value", "source_concepts", "concept_graph",
-           "review_detail", "review_visual", "produce_rules", "keypoint_coverage", "inline_images"}
+           "review_detail", "review_visual", "produce_rules", "keypoint_coverage"}
 
 
 def read_json(path: Path):
@@ -284,7 +284,6 @@ def build_checks(args, profile, mode):
         if "site_freshness" in req: checks.append(bundled_or_skip("r3.site_freshness", "线上新鲜度"))
         if "site_links" in req: checks.append(bundled_or_skip("r3.site_links", "站点链接"))
         if "keypoint_coverage" in req: checks.append(check_keypoints(args))
-        if "inline_images" in req: checks.append(bundled_or_skip("r3.inline_images", "线上插图门禁"))
     return checks
 
 

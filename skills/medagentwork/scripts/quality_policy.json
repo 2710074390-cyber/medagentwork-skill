@@ -113,7 +113,7 @@
       }
     },
     "release_teaching_plan": {
-      "description": "教学计划版正式发布：深度/案例/配图/形态门禁。",
+      "description": "教学计划版正式发布：深度/案例/形态门禁（配图门禁已随 HC-19 于 2026-11-02 移除）。",
       "required_checks": [
         "keypoint_coverage",
         "produce_rules",
