@@ -5,7 +5,53 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased] — 2026-11-02
+## [v2.5] — 2026-11-06
+
+> **防跳过门禁**：把「阶段门禁必须真跑」从提示词纪律变成**机械约束**。触发问题是「换一个
+> agent 软件 / 模型，它不按 SKILL 里的命令跑，直接写交付物怎么办」——原项目的结论是
+> **提示词不是约束**，因此本版把门禁执行做成交付物自己的属性（回执链 + 交付口拒收 + 审计），
+> **与宿主无关**（不依赖任何宿主 hook，换 Claude Code / Codex / Cursor / WorkBuddy / Trae 都成立）。
+
+### 新增
+
+- `scripts/gate_run.py`：阶段门禁**唯一执行面**（`a2/a3/a4/lv/a5`）。preflight 先验上游回执（缺回执/断链/产物字节不符 → 执行前 `BLOCKED` 并给出下一步命令）→ 按阶段声明跑确定性门禁 → **PASS 才写回执**。阶段适用性由产物/状态机械判定（纯题库批次跳过 `a5`、纯复习资料批次跳过 `a2/a3/a4/lv`、schema<2.0 跳过 `lv`），并会按磁盘产物机械补写 `workflow_state` 的阶段步骤（`gate_check` 的 A3/A4 依赖 `steps.AGENT3/AGENT4`，此前无人写入）。`--stage all` 按适用阶段顺序执行。
+- `scripts/gate_ledger.py`：回执链原语。`最终产物/{batch}/_gate_ledger.json` 把「产物字节 sha256 + 门禁执行摘要」按 `chain_prev` 链式绑定；删/改/插一条都会断链（`CHAIN_BROKEN`/`SEQ_MISMATCH`），产物被改过 → `ARTIFACT_MISMATCH`。
+- `scripts/gate_audit.py`：工作区审计。`--batch`/`--all`/`--strict`；「产物在、回执不在」「回执链阶段顺序被重排」「签收批次缺阶段」「批次目录不是 batchNNN」判 FAIL；回执含 SKIPPED 子门禁 / `--golden-absent` 降级 → WARN。
+- `scripts/qbank.py export-md` 新增**交付口验真**：输出落在 `最终产物/{batch}/` 时，验 A2/A3/A4（schema 2.0+ 含 lv）回执与阶段顺序 + A4 对输入 JSON 的字节绑定；缺回执/字节不符 → **exit 1，不生成交付 MD**。导出成功后追加 `export` 回执，把交付 MD 字节也绑定（导出后手改 MD → 审计 FAIL）。
+- 冒烟测试新增 34 项防跳过断言：**真实跑通 a2→a3→a4→export 全链路**、缺上游/跳阶段 BLOCKED、`--dry-run` 不写回执、无回执交付拒收、篡改 JSON/MD 后拒收或审计 FAIL、删回执拒收、伪造回执断链、非 batchNNN 目录拒收、telemetry 签名回归。
+
+### 变更
+
+- `SKILL.md` 新增 §3.1「门禁不可跳过：回执链 + 单一执行入口」，§4 生命周期与 §5 命令速查改为以 `gate_run.py` 为唯一执行面（`validate_options/gate_check/check_*` 标注为内部实现，直跑不写回执）。
+- `references/runbook.md` §3 改为「唯一执行面 + 内部实现」两节，新增 §3.2「回执链、交付口与审计」与故障处置行；`references/medmaster.md`、`references/quality-gate.md` 同步接线（HC-12 执行面收窄）。
+- `README.md` 新增「门禁不可跳过（v2.5.0 防跳过层）」章节与目录结构/变更记录更新。
+
+### 修复（本次验证中发现并修掉的既有缺陷）
+
+- `scripts/telemetry.py`：`gate_check` 调用 `log_gate_check(..., reason=...)` 与签名不匹配，门禁内容 PASS 后仍抛 `TypeError` → `gate_check` 以 exit 1 结束，A3/A4/final 永远拿不到 PASS。改为接受 `**fields`。
+- `scripts/workflow_state.py`：`migrate_legacy` 把 `state['halt']` 镜像里的 `batch_id` 当「误注入」剥掉 → `check_halt` 把它当历史全局 halt，**一个批次被 HALT 会误停所有批次**。现豁免 `halt`。
+- `scripts/gate_check.py`：GATE-A4 要求交付 MD 已存在，而 MD 又要求 A4 回执 → **死锁**；MD 检查移到终审 `gate_final`（并加「MD 题数 = JSON 题数」一致性校验），A4 只验 JSON + 追溯日志。
+- `scripts/validate/engine.py`：`最终产物/{batch}` 目录存在但为空时不再回退 `中间产物/`，导致 GATE-A2 误报「未找到批次题库文件」。
+
+### 破坏性变更
+
+- **交付口强制验回执**：v2.5 之前已在途的批次没有回执链，`qbank.py export-md` 写 `最终产物/{batch}/` 会被拒绝。**处理方式：重跑一次确定性门禁补齐回执**（`gate_run.py --stage a2 → a3 → a4`；门禁幂等，不需要回改产物）。
+- **GATE-A4 不再要求交付 MD**（移到终审）：按旧文档「先 A4 再 export」的流程现在可正常走通；终审 `gate_check --stage final` 仍要求 MD 存在且题数一致。
+
+### 验证
+
+- 冒烟测试：**66 passed / 0 failed**（原 32 项 + 新增 34 项；含真实 a2→a3→a4→export 链路）。
+- `python -m compileall -q skills/medagentwork/scripts smoketest` 通过。
+- `python tools/preflight_publish.py --strict`：致命=0 警告=0。
+- 独立对抗验证：篡改/删改回执、改产物字节、伪造单条回执、非规范批次目录均被拒或判红；本地伪造自洽回执属已知边界。
+
+### 边界（诚实声明）
+
+- 本地无法 100% 阻止伪造/绕开：有 shell 的 Agent 能自己 append 回执，也能**绕开 `export-md` 直接写文件**（此时只有 `gate_audit` 能事后发现）。本版保证的是「**跳过必留痕**（缺回执/断链/字节不符）+ **走 export-md 的交付必拒收** + **审计可复核**」，不是密码学防伪。
+- 终审 `final` 读 `workflow_state` 自述字段（本 skill 流程不机械产生），**不纳入回执链**、不作交付前置；避免把诚实用户卡死。
+- 回执是本机证据；跨机器/跨用户的复核依赖工作区是否随产物一并保留（本 skill 不假设 git/CI）。
+
+### 并入 v2.5 —— 2026-11-02（原 Unreleased）
 
 > 清除提示词层的插图残留。v2.2 已移除插图脚本与门禁，但三份提示词仍保留生图/配图清单指令，
 > 形成「文档说已移除、提示词说怎么做」的口径矛盾。本次补齐，并以 `SOUL.md § HC-19（已下线）` 为准。
@@ -24,7 +70,7 @@
 - 需要旧插图能力仍请使用 [v2.1](https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.1)，本仓库不恢复该能力。
 - 冒烟测试 `32 passed / 0 failed`。
 
-## [Unreleased] — 2026-10-31
+### 并入 v2.5 —— 2026-10-31（原 Unreleased）
 
 > 面向首次使用引导：装完即可自检、用内置 3 题示例跑通校验/导出，并把路径、命名与退出码口径统一到可执行状态。
 
@@ -408,7 +454,9 @@
 
 ---
 
-[Unreleased]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v2.4...HEAD
+[v2.5]: https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.5.0
+[v2.4]: https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.4
+[v2.3]: https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v2.3
 [v2.2]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v2.1...v2.2
 [v2.1]: https://github.com/2710074390-cyber/medagentwork-skill/compare/v1.0...v2.1
 [v1.0]: https://github.com/2710074390-cyber/medagentwork-skill/releases/tag/v1.0

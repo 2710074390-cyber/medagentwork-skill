@@ -1006,41 +1006,9 @@ def gate_agent4(batch_id, batch_data):
         except Exception:
             pass
 
-    # 检查最终交付 MD（2026-08-20 起强制）：
-    # 每个 ALL_questions_FIXED*.json 必须有同目录 ALL_questions_FIXED*.md
-    # （由 `python scripts/qbank.py export-md` 生成，用户可读最终交付格式）
-    for jf in json_files:
-        md_expected = jf.with_suffix('.md')
-        # 押题卷批次的交付 MD 命名可不同（如「…期末押题卷.md」），
-        # 接受同目录含“押题”的 MD 作为等价交付物。
-        if not md_expected.exists() and PRODUCT_PREDICTION_PAPER in types:
-            alternatives = sorted(final_dir.glob('*押题*.md')) if final_dir.exists() else []
-            if alternatives:
-                md_expected = alternatives[0]
-        if not md_expected.exists():
-            issues.append({
-                'gate_sub': 'GATE-A4-MD',
-                'status': 'BLOCKED',
-                'reason': f'{jf.name} 缺少最终交付 MD 文件 {md_expected.name}。'
-                          f'请运行 python scripts/qbank.py export-md --file {jf.name} --out {md_expected.name}',
-                'rule': '最终交付 MD 格式 (2026-08-20 起强制)',
-            })
-        else:
-            # 抽查 MD 中包含答案标记（✅ 覆盖率 ≥50%，防空转）
-            try:
-                md_text = md_expected.read_text(encoding='utf-8')
-                total_q = sum(1 for line in md_text.splitlines() if line.startswith('### '))
-                check_marks = md_text.count('✅')
-                if total_q > 0 and check_marks < max(1, total_q * 0.5):
-                    issues.append({
-                        'gate_sub': 'GATE-A4-MD',
-                        'status': 'BLOCKED',
-                        'reason': f'{md_expected.name} 答案标记覆盖率过低 '
-                                  f'({check_marks}✅ / {total_q}题)。MD 必须包含 ✅ 答案标记。',
-                        'rule': 'MD答案标记 (save.py MD答案标记规范)',
-                    })
-            except Exception:
-                pass
+    # 最终交付 MD 检查已移至终审（final_md_issues）：
+    # v2.5.0 起 A4 回执是 qbank.py export-md 的前置条件，若 A4 又要求 MD 先存在会死锁。
+    # A4 只验 JSON/追溯日志；MD 交付在 export-md（验 A4 回执）之后由终审与 gate_audit 检查。
 
     if issues:
         return {
@@ -1053,7 +1021,7 @@ def gate_agent4(batch_id, batch_data):
     return {
         'gate': 'GATE-A4',
         'status': 'PASS',
-        'reason': '修复门禁通过 (追溯日志存在, HC-13 source_file_synced OK, JSON纯净, MD交付齐全)',
+        'reason': '修复门禁通过 (追溯日志存在, HC-13 source_file_synced OK, JSON纯净；交付 MD 由 export-md 生成后交终审/审计检查)',
     }
 
 
@@ -1244,6 +1212,62 @@ def gate_item_learning_value(batch_id, batch_data):
     }
 
 
+def final_md_issues(batch_id, types) -> list:
+    """最终交付 MD 检查（2026-08-20 起强制；v2.5.0 从 GATE-A4 移到终审/审计）。
+
+    为什么移动：v2.5.0 起 A4 回执是 `qbank.py export-md` 的前置条件；若 A4 又要求 MD
+    先存在，就会形成「MD → A4 回执 → MD」死锁。现在 A4 只验 JSON + 追溯日志，
+    MD 在 export-md（验 A4 回执）之后由终审与 `gate_audit.py` 检查。
+    押题卷批次允许同目录含「押题」的 MD 作为等价交付物。
+    """
+    issues = []
+    final_dir = BASE / '最终产物' / batch_id
+    json_files = list(final_dir.glob('ALL_questions_FIXED*.json')) if final_dir.exists() else []
+    for jf in json_files:
+        md_expected = jf.with_suffix('.md')
+        if not md_expected.exists() and PRODUCT_PREDICTION_PAPER in types:
+            alternatives = sorted(final_dir.glob('*押题*.md')) if final_dir.exists() else []
+            if alternatives:
+                md_expected = alternatives[0]
+        if not md_expected.exists():
+            issues.append({
+                'gate_sub': 'GATE-FINAL-MD',
+                'status': 'BLOCKED',
+                'reason': f'{jf.name} 缺少最终交付 MD 文件 {md_expected.name}。'
+                          f'请运行 python scripts/qbank.py export-md --file {jf.name} --out {md_expected.name}',
+                'rule': '最终交付 MD 格式 (2026-08-20 起强制；v2.5.0 起在终审检查)',
+            })
+            continue
+        # 抽查 MD 中包含答案标记（✅ 覆盖率 ≥50%，防空转）+ 题目数与 JSON 一致（防空壳 MD）
+        try:
+            md_text = md_expected.read_text(encoding='utf-8')
+            total_q = sum(1 for line in md_text.splitlines() if line.startswith('### '))
+            check_marks = md_text.count('✅')
+            if total_q > 0 and check_marks < max(1, total_q * 0.5):
+                issues.append({
+                    'gate_sub': 'GATE-FINAL-MD',
+                    'status': 'BLOCKED',
+                    'reason': f'{md_expected.name} 答案标记覆盖率过低 '
+                              f'({check_marks}✅ / {total_q}题)。MD 必须包含 ✅ 答案标记。',
+                    'rule': 'MD答案标记 (save.py MD答案标记规范)',
+                })
+            try:
+                json_q = json.loads(jf.read_text(encoding='utf-8'))
+                if isinstance(json_q, list) and total_q and total_q != len(json_q):
+                    issues.append({
+                        'gate_sub': 'GATE-FINAL-MD',
+                        'status': 'BLOCKED',
+                        'reason': f'{md_expected.name} 题数 {total_q} 与 {jf.name} 题数 {len(json_q)} 不一致'
+                                  f'（MD 被手改或未重新导出）',
+                        'rule': 'MD/JSON 一致性 (v2.5.0)',
+                    })
+            except (OSError, ValueError):
+                pass
+        except Exception:
+            pass
+    return issues
+
+
 def gate_final(batch_id, batch_data, learning_value_mode='off'):
     """
     终审前全量检查: HC-9/10/11 + JSON完整性 + Bloom终态
@@ -1318,6 +1342,9 @@ def gate_final(batch_id, batch_data, learning_value_mode='off'):
                 'status': 'SKIPPED',
                 'reason': f'{label}：非复习资料批次（{", ".join(sorted(types))}），不适用',
             })
+
+    if needs_json:
+        issues += final_md_issues(batch_id, types)
 
     # JSON 有效性
     # v2.0 (2026-08-20 审查修复): 必须为真实布尔 true —— 字符串 'False'/'True'

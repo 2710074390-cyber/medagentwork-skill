@@ -255,7 +255,11 @@ def migrate_legacy(state):
 
     # 1. 非批次顶层键自愈: 移除被误注入的 batch_id（v1.0 bug: 曾把 halt/
     #    gate_system/system_config/merged_psychiatry 当批次注入 batch_id）
+    #    2026-11-06 修复：`halt` 镜像的 batch_id 是合法字段（按批次 HALT 的判据），
+    #    此前被一并剥掉 → check_halt 把它当「历史全局 halt」→ 所有批次都被误停。
     for key in list(state.keys()):
+        if key == 'halt':
+            continue
         if not is_batch_key(key) and isinstance(state[key], dict):
             polluted = state[key].pop('batch_id', None)
             if polluted is not None:

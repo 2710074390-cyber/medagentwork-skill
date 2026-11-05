@@ -31,6 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import gate_ledger
+
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 REGISTRY_VERSION = 1
@@ -801,6 +803,119 @@ def selftest():
 # CLI
 # ──────────────────────────────────────────
 
+# ──────────────────────────────────────────
+# 交付口验真（v2.5.0 防跳过层）
+# ──────────────────────────────────────────
+
+def _delivery_batch(out) -> str | None:
+    """输出路径落在 最终产物/{batch}/ 时返回批次目录名（原样，可能不合规）；否则 None。
+
+    用 `resolve()` 后再取路径段：防 `最终产物/batch001/../../最终产物/batch1/x.md`
+    这类「路径段写 batch001、实际落点 batch1」的绕过。
+    """
+    if out is None:
+        return None
+    p = Path(out)
+    try:
+        parts = p.resolve().parts
+    except Exception:
+        parts = p.parts
+    for i, part in enumerate(parts[:-1]):
+        if part == '最终产物':
+            if i > 0 and parts[i - 1] == 'archive':
+                return None  # 归档区不拦截（交付口只认工作区 最终产物/）
+            return parts[i + 1] or None
+    return None
+
+
+def _lv_applicable(batch: str) -> bool:
+    """交付口用的 lv 适用性：读交付 JSON 的 schema_version（>=2.0 且非空）。"""
+    p = Path('最终产物') / batch / 'ALL_questions_FIXED.json'
+    try:
+        data = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        return False
+    if isinstance(data, dict):
+        data = data.get('questions')
+    for q in data or []:
+        if not isinstance(q, dict):
+            continue
+        try:
+            if float(str(q.get('schema_version') or '0')) >= 2.0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _require_delivery_receipt(batch: str, input_file, out_path) -> int:
+    """交付口硬闸：往 最终产物/{batch}/ 写交付 MD 前，验 A2/A3/A4 回执 + A4 字节绑定。
+
+    这是 v2.5.0「防跳过」与宿主无关的一层：不读规则的 agent 软件也会在这里被拒。
+    只约束 `qbank.py export-md` 这条路径；绕开 CLI 直接写文件属本地边界（见 README）。
+    """
+    print(f'=== 交付口验真：{batch}（v2.5.0 防跳过）===')
+    if not gate_ledger.BATCH_RE.match(str(batch)):
+        print(f'✗ 交付被拒：BATCH_NAME_INVALID —— 批次目录 {batch!r} 不符合 batchNNN 命名。')
+        print('  交付口与 gate_audit 都按 batchNNN 识别批次；不合规命名 = 防护静默失效。')
+        return 1
+    report = gate_ledger.verify(batch, 'a4', require_artifacts=[input_file])
+    if report['verdict'] == 'FAIL':
+        detail = next((c['detail'] for c in report['checks'] if c['status'] == 'FAIL'), '')
+        print(f"✗ 交付被拒：{report['code']} —— {detail}")
+        print('  没有有效 A4 回执的交付物不可写入 最终产物/：跳过门禁 = 拿不到交付件。')
+        # 按回执链现状给出正确的补齐起点（缺 a2 → 从 a2 起；缺 a3 → 从 a3 起）
+        led0, _ = gate_ledger.load_ledger(batch)
+        have = {st.get('stage') for st in (led0 or {}).get('stamps') or []}
+        todo = [s for s in ('a2', 'a3', 'a4') if s not in have] or ['a4']
+        print(f'  → 按顺序补跑：python {{SKILL}}/scripts/gate_run.py --batch {batch} --stage ' + ' → '.join(todo))
+        return 1
+    led, err = gate_ledger.load_ledger(batch)
+    if led is None:
+        print(f"✗ 交付被拒：{err or '回执链不可读'}")
+        return 1
+    first_seq = {}
+    for st in led.get('stamps') or []:
+        first_seq.setdefault(st.get('stage'), st.get('seq'))
+    missing = [s for s in ('a2', 'a3', 'a4') if s not in first_seq]
+    if missing:
+        print(f"✗ 交付被拒：STAGE_MISSING —— 回执链缺少前置阶段 {', '.join(missing)}（跳过门禁）")
+        print(f'  → 按顺序补跑：gate_run.py --batch {batch} --stage ' + ' → '.join(missing))
+        return 1
+    if not (first_seq['a2'] < first_seq['a3'] < first_seq['a4']):
+        print('✗ 交付被拒：STAGE_ORDER —— 回执链阶段顺序不是 a2 → a3 → a4（回执被重排/伪造）')
+        return 1
+    if _lv_applicable(batch) and 'lv' not in first_seq:
+        print('✗ 交付被拒：STAGE_MISSING —— schema 2.0+ 批次缺少 lv 回执（HC-24 学习价值门禁被跳过）')
+        print(f'  → 补跑：gate_run.py --batch {batch} --stage lv')
+        return 1
+    if report['verdict'] == 'WARN':
+        print(f"⚠️ 回执可用但含 SKIPPED 子门禁：{report['code']}（继续交付，gate_audit 会记 WARN）")
+    print(f"✓ A2/A3/A4 回执有效（a4 seq={report['stamp_seq']}），放行交付 → {out_path}")
+    return 0
+
+
+def _stamp_export(batch: str, md_path, json_path) -> None:
+    """导出成功后把交付 MD 字节追加进回执链（stage=export）。
+
+    A4 回执绑定 JSON 源；交付 MD 是真正交到用户手上的文件，必须单独字节绑定，
+    否则「导出后手改 MD」无法被审计发现。重跑 export 会追加新回执（以最新为准）。
+    """
+    led, err = gate_ledger.load_ledger(batch)
+    if led is None:
+        print(f'⚠️ export 回执未写：{err or "回执链缺失"}（交付 MD 未被绑定）')
+        return
+    gate_ledger.append_stamp(
+        led, 'export', artifacts=[md_path, json_path],
+        gates=[{'id': 'EXPORT-MD', 'argv': ['qbank.py', 'export-md'], 'rc': 0}],
+        provenance='export-md', tool='qbank@2.5.0', note='交付 MD 生成并绑定字节')
+    try:
+        gate_ledger.write_ledger(led)
+        print(f'✓ 已绑定交付 MD 回执：{gate_ledger.ledger_path(batch)}')
+    except OSError as exc:
+        print(f'⚠️ export 回执写入失败：{exc}（交付 MD 未被绑定，gate_audit 会判缺阶段）')
+
+
 def main():
     parser = argparse.ArgumentParser(description='MedAgentWork 统一题库数据层 (qbank)')
     sub = parser.add_subparsers(dest='cmd')
@@ -928,9 +1043,22 @@ def main():
         return
 
     if args.cmd == 'export-md':
+        out_target = Path(args.out) if args.out else Path(args.file).with_suffix('.md')
+        batch = _delivery_batch(out_target)
+        if batch:
+            rc = _require_delivery_receipt(batch, args.file, out_target)
+            if rc:
+                sys.exit(rc)
         out, n = export_md(args.file, args.out, args.title)
         if out is None:
             sys.exit(1)
+        if batch:
+            try:
+                md_abs = Path(out).resolve()
+                json_abs = Path(args.file).resolve()
+            except Exception:
+                md_abs, json_abs = out, args.file
+            _stamp_export(batch, md_abs, json_abs)
         return
 
     if args.cmd == 'rehome':

@@ -148,17 +148,46 @@ archive/             # 签收归档
   - `references/concept-layer.md` — **HC-27 概念标注与概念层**（节点/三类边/C1–C8/概念卡）
   - `references/prompts/` — 五个角色的完整提示词（出题/质检的深度规范）
 
+## 3.1 门禁不可跳过：回执链 + 单一执行入口（v2.5.0 起 · 任何宿主通用）
+
+> 触发问题：「换一个 agent 软件 / 模型，它不按 SKILL 里写的命令跑，直接写交付物怎么办？」
+> 结论：**提示词不是约束**。所以 v2.5.0 把「门禁执行」做成了交付物自己的属性：
+
+| 层 | 机制 | 落点 |
+|---|---|---|
+| ① 单一执行入口 | `a2/a3/a4/lv/a5` 只通过 `gate_run.py` 跑；它先验上游回执、再跑门禁、PASS 才写回执 | `scripts/gate_run.py` |
+| ② 回执链 | 「产物字节 sha256 + 门禁执行摘要」按 `chain_prev` 链式绑定；删/改/插一条都会断链 | `最终产物/{batch}/_gate_ledger.json` |
+| ③ 交付口硬闸 | `qbank.py export-md` 往 `最终产物/{batch}/` 写交付 MD 前，验 A2/A3/A4（schema 2.0+ 批次含 lv）回执与阶段顺序；缺回执 / 字节不符 → exit 1 | `scripts/qbank.py` |
+| ④ 交付 MD 字节绑定 | 导出成功后追加 `export` 回执，绑定 MD 字节；导出后手改 MD → 审计 FAIL | `scripts/qbank.py` + `gate_ledger.py` |
+| ⑤ 事后审计 | 扫 `最终产物/` 下全部批次：产物在回执不在 / 断链 / 产物被改 / 签收缺阶段 → FAIL | `scripts/gate_audit.py` |
+
+```bash
+cd <工作区>
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage a2      # GATE-A2（出题后）
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage a3      # GATE-A3（质检后）
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage a4      # GATE-A4（修复后）
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage lv      # HC-24（schema 2.0+ 批次）
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage a5      # GATE-A5（纯复习资料批次 a2–a4 自动跳过）
+python {SKILL}/scripts/gate_audit.py --all                           # 审计全工作区
+```
+
+- **`gate_run.py` 是唯一执行面**；`runbook.md` 第 3 节列出的 `validate_options/gate_check/check_*` 命令是它的内部实现（仅人工排障时直接跑，直接跑**不写回执**、交付口会拒收）。
+- **终审 `final` 不在回执链内**：`gate_check.py --stage final` 读的是 `workflow_state` 自述字段（`final_review.json_valid` 等），本 skill 流程不机械产生这些字段；把它做成回执前置会让诚实用户死锁。它仍是可手动跑的质量汇总门禁。
+- **阶段适用性由产物机械判定**（与 `gate_check.infer_product_types` 同源）：纯题库批次跳过 `a5`；纯复习资料批次跳过 `a2/a3/a4/lv`；`lv` 仅 schema 2.0+ 生效；无教师重点输入的子门禁记 `SKIPPED`（审计记 WARN）。
+- `--dry-run` / `--no-stamp` 只跑门禁不写回执，用于调试；这种产物**无法交付**（交付口会拒绝）。注意：`gate_run` 会按磁盘产物同步 `workflow_state` 的步骤簿记（`gate_check` 的 A3/A4 依赖 `steps.AGENT3/AGENT4`），dry-run 也会做这步簿记，但**不写回执、不改门禁结论**。
+- **边界（诚实声明）**：本地无法 100% 阻止伪造/绕开（有 shell 的 agent 能自己 append 回执、也能绕开 `export-md` 直接写文件）。这套机制保证的是**跳过必留痕（缺回执/断链/字节不符）+ 走 `export-md` 的交付必拒收 + 审计可复核**；直接写文件只能被 `gate_audit` 事后发现。且**不依赖宿主 hook**——换 Claude Code / Codex / Cursor / WorkBuddy / Trae 都成立，因为闸门在 Python 脚本里，不在提示词里。
+
 ## 4. 批次生命周期（编排流程）
 
 1. **启动**：用户说「开始新批次：{科目}+{章节}」→ 回显意图（科目/目标题数/模块划分/Bloom 目标）→ 用户确认 → 在 `workflow_state.json` 登记批次（批次号 `batch{NNN}`；`s, _ = ws.load_state(); b, _ = ws.ensure_batch(s, 'batch001'); b.update(subject=...); ws.save_state(s)`）
 2. **MedGen**（读 `references/medgen.md` + `references/prompts/MedGen_current_prompt.md`）：读 `输入素材/{科目}/`，生成题库 JSON 写入 `中间产物/{batchID}/ALL_questions.json`（纯 JSON 数组），生成中每 50 题跑 Bloom 采样（HC-15）
-3. **GATE-A2**（不可跳过）：validate FAIL==0 才放行；FAIL>0 → 打回 MedGen 修正
+3. **GATE-A2**（不可跳过）：`gate_run.py --stage a2`（内部跑 `validate_options`，FAIL==0 才放行并写回执）；FAIL>0 → 打回 MedGen 修正
 4. **MedQC**（读 `references/medqc.md` + 对应 prompt）：按 D1-D21 维度质检，报告写入 `质检报告/{batchID}/A3_质检报告.json`
-5. **GATE-A3**：D20≠0 且 Bloom 偏差≤15%
+5. **GATE-A3**：`gate_run.py --stage a3`（D20≠0 且 Bloom 偏差≤15%；PASS 写回执）
 6. **MedFix**（读 `references/medfix.md`）：按质检报告逐项修复，输出到 `最终产物/{batchID}/`（含追溯日志 `source_file_synced: true`）
-7. **GATE-A4 + MD 导出**：复检 FAIL==0 后运行 `qbank.py export-md` 生成 `ALL_questions_FIXED.md`（最终交付格式）
-8. **MedReview**（读 `references/medreview.md`；**有教师重点时先读 `references/bpa-v1.md`**）：生成复习资料。**有教师重点/复习大纲输入 → BPA v1.0 强制**：1+7 模块模板 + 八行卡片 + 附录五件套，输出到 `Obsidian产物/教师重点蓝图版/{科目}_教师重点蓝图版_主复习资料.md`（工程副本到 `复习资料/{科目}教师重点版/`）；无教师重点 → 教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`。两种情况都要在交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`；**再自跑 `check_review_detail.py`（HC-26 详细度 · 正式交付必须 PASS）**——掌握级九槽位、模块八块、自测答案覆盖三项缺一即 FAIL；**并自跑 `check_review_visual.py`（视觉/排版门禁）**——三色覆盖、Callout 密度、视觉呼吸、展开区、表格、导出兼容任一 FAIL 即返工；交付物必须是**合并后的单一 MD**（分片只留 `中间产物/`）
-9. **终审**：`gate_check.py --stage final`（HC-9/10/11 + JSON 完整性）→ **有教师重点输入时加跑 `check_keypoint_coverage.py`（HC-20）** → **题库/押题卷批次加跑 `check_source_concepts.py`（HC-27 概念标注，schema 2.1）**；有 KC 注册表时加跑 `check_concept_graph.py`（概念图 C1–C8）→ 用户审查 → 签收置 APPROVED → 用户手动把金标准题移入 `GoldenSet/`（仅用户操作）
+7. **GATE-A4 + MD 导出**：先 `gate_run.py --stage a4`（复检 FAIL==0 并写回执；schema 2.0+ 批次再跑 `--stage lv`），再运行 `qbank.py export-md` 生成 `ALL_questions_FIXED.md`（最终交付格式）——**交付口会验 A4 回执，无回执/产物被改过直接拒绝**
+8. **MedReview**（读 `references/medreview.md`；**有教师重点时先读 `references/bpa-v1.md`**）：生成复习资料。**有教师重点/复习大纲输入 → BPA v1.0 强制**：1+7 模块模板 + 八行卡片 + 附录五件套，输出到 `Obsidian产物/教师重点蓝图版/{科目}_教师重点蓝图版_主复习资料.md`（工程副本到 `复习资料/{科目}教师重点版/`）；无教师重点 → 教材浓缩型分层复习手册到 `复习资料/{科目}教学计划版/`。两种情况都要在交付前产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）并自跑 `check_keypoint_coverage.py`；**再自跑 `check_review_detail.py`（HC-26 详细度 · 正式交付必须 PASS）**——掌握级九槽位、模块八块、自测答案覆盖三项缺一即 FAIL；**并自跑 `check_review_visual.py`（视觉/排版门禁）**——三色覆盖、Callout 密度、视觉呼吸、展开区、表格、导出兼容任一 FAIL 即返工；交付物必须是**合并后的单一 MD**（分片只留 `中间产物/`）；**最后用 `gate_run.py --batch {batchID} --stage a5 --subject {科目}` 跑门禁并写 a5 回执**（唯一执行面；`a5` 会复跑上述复习资料门禁并把 MD 字节绑进回执）
+9. **终审**：`gate_check.py --batch {batchID} --stage final`（质量汇总门禁，**不在回执链内**：其检查读 `workflow_state` 自述字段，本 skill 流程不机械产生，故不作交付前置；可手动跑并按其提示补状态）→ **有教师重点输入时加跑 `check_keypoint_coverage.py`（HC-20，已并入 `--stage a5`）** → **题库/押题卷批次加跑 `check_source_concepts.py`（HC-27 概念标注，schema 2.1）**；有 KC 注册表时加跑 `check_concept_graph.py`（概念图 C1–C8）→ 用户审查 → 签收置 APPROVED → 用户手动把金标准题移入 `GoldenSet/`（仅用户操作）
 
 ### 4.1 阶段门禁与质量基准（HC-25）
 
@@ -178,9 +207,16 @@ archive/             # 签收归档
 ```bash
 cd <工作区>
 
+# ── 阶段门禁：唯一执行入口（v2.5.0 防跳过；先验上游回执、PASS 写回执）──
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage <a2|a3|a4|lv|a5>
+python {SKILL}/scripts/gate_audit.py --all                     # 全工作区回执审计
+python {SKILL}/scripts/gate_ledger.py show --batch {batchID}   # 查看该批次回执链
+# 终审（质量汇总，不写回执；不作为交付前置）：python {SKILL}/scripts/gate_check.py --batch {batchID} --stage final
+
 # 首次使用/环境自检（Python 版本、工作区、输入素材、GoldenSet、可选依赖）
 python {SKILL}/scripts/doctor.py --workspace <工作区>
 
+# 以下为 gate_run 的内部实现（人工排障时才直接跑；直跑不写回执，交付口会拒收）
 # 产出门禁（每个题库文件，MedGen 交付前自检 + GATE-A2）
 python {SKILL}/scripts/validate_options.py --batch {batchID} --mode full   # FAIL==0 才放行；仅 WARN 退出 0（不阻断）；文件/数据错误退出 2
 
@@ -298,6 +334,7 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 - **配置即事实来源**：所有阈值集中在 `pipeline.yaml` 的 `thresholds:` 段，由 `scripts/pipeline_config.py` 运行时读取（零依赖，缺失回退默认）——改配置即全局生效，不再有"声明与实现双轨"
 - **Bloom 独立重算**：门禁不采信质检报告的 LLM 自述分布，而是从题库 JSON 重算并交叉验证（偏差 > 5% 即 BLOCKED）——把 Bloom 门禁从"读 LLM 自述"升级为"确定性重算"
 - **规则命中有测试**：冒烟测试不仅验"脚本可执行"，还断言 R1–R13/JS1 每条规则**真的被触发**（防止 R1 那类死代码再次溜过）
+- **门禁不可跳过（v2.5.0）**：门禁统一走 `gate_run.py`，PASS 写「产物字节 + 门禁执行」回执链；交付口验 A2/A3/A4 回执、导出后把交付 MD 字节也追加进回执，`gate_audit.py` 事后审计。闸门在 Python 脚本里而不是提示词里（终审 `final` 读自述状态，不纳入回执链）；换宿主软件也绕不过 `export-md` 这条交付口（详见 §3.1）
 
 ## 7.1 门禁保证什么、不保证什么（边界声明，必读）
 
@@ -339,6 +376,6 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 - ❌ 不提供医疗诊断 — 仅基于已发表文献出题/质检
 - ❌ 不编造研究结果 — 没有就说"未检索到"
 - ❌ 不修改 GoldenSet — 金标准由用户手动维护
-- ❌ 不跳过门禁 — 阶段转换必须跑脚本验证
+- ❌ 不跳过门禁 — 阶段转换（a2/a3/a4/lv/a5）必须走 `gate_run.py` 并留下回执；无回执/回执失效的产物经 `export-md` 交付会被拒收
 - ❌ 不手改 workflow_state.json — 走 `workflow_state.py`（HC-17）
 - ✅ 可以：出题、质检、修复、追溯、成册、统计

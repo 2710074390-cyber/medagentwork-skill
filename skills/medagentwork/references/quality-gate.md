@@ -9,7 +9,7 @@
 ## 0. 三条底线
 
 1. **旧产物不动**：已签收批次、已发布 PDF、既有题库与复习资料不因新标准被回改；如需增强，另开新批次或显式修订单。
-2. **门禁不可跳过**：R0–R4 每个阶段必须有显式结论（PASS / WARN / BLOCKED / SKIPPED）；**SKIPPED 不等于 PASS**。
+2. **门禁不可跳过**：R0–R4 每个阶段必须有显式结论（PASS / WARN / BLOCKED / SKIPPED）；**SKIPPED 不等于 PASS**。批次阶段门禁由 `gate_run.py` 统一承载并在 PASS 后写回执（v2.5.0，防跳过；`a2/a3/a4/lv/a5`，终审 `final` 读自述状态不纳入回执链）；交付口验回执、`gate_audit.py` 事后复核——见 `references/runbook.md` §3.2。
 3. **标准可执行**：每条标准必须绑定脚本、阈值、报告路径；不能只写在文档里。
 
 ---

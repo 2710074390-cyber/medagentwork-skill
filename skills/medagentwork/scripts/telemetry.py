@@ -53,8 +53,10 @@ def log_error(message: str, **fields) -> None:
     _emit("error", message=message, **fields)
 
 
-def log_gate_check(batch_id: str, stage: str, status: str, details=None) -> None:
-    _emit("gate_check", batch_id=batch_id, stage=stage, status=status, details=details)
+def log_gate_check(batch_id: str, stage: str, status: str, details=None, **fields) -> None:
+    # **fields 兼容 gate_check.py 传入的 reason=（2026-11-06 修复：签名不匹配曾使
+    # 门禁内容 PASS 后 telemetry 抛 TypeError → gate_check 以 exit 1 结束，A3/A4/final 无法产生回执）。
+    _emit("gate_check", batch_id=batch_id, stage=stage, status=status, details=details, **fields)
 
 
 def log_validation(filepath: str, mode: str, fail: int, warn: int, passed: int, summary=None) -> None:

@@ -110,24 +110,30 @@ def validate_questions(questions: list[dict], verbose: bool = False, mode: str =
 
 
 def discover_files(batch_id):
-    """发现指定批次的所有题库文件"""
-    batch_dir = BASE / "最终产物" / batch_id
-    if not batch_dir.exists():
-        batch_dir = BASE / "中间产物" / batch_id
-    if not batch_dir.exists():
-        return []
+    """发现指定批次的所有题库文件。
 
-    exclude_keywords = ('追溯', 'escalation', 'trace', '调用指令', 'module_')
-    for name in ('ALL_questions_FIXED.json', 'ALL_questions_FIXED.md',
-                 'ALL_questions.json', 'ALL_questions.md'):
-        f = batch_dir / name
-        if f.exists():
-            return [f]
-
+    2026-11-06 修复：此前「最终产物/{batch} 目录存在但为空」会直接返回 []，
+    不再回退到 中间产物/ —— 导致 GATE-A2 在 最终产物 目录被提前创建时误报
+    「未找到批次题库文件」。现在按目录优先级逐个找，找不到再整体回退。
+    """
+    dirs = [BASE / "最终产物" / batch_id, BASE / "中间产物" / batch_id]
+    exclude_keywords = ('追溯', 'escalation', 'trace', '调用指令', 'module_',
+                        '_gate_ledger', 'review_queue')
+    for batch_dir in dirs:
+        if not batch_dir.is_dir():
+            continue
+        for name in ('ALL_questions_FIXED.json', 'ALL_questions_FIXED.md',
+                     'ALL_questions.json', 'ALL_questions.md'):
+            f = batch_dir / name
+            if f.exists():
+                return [f]
     files = []
-    for ext in ('*.json', '*.md'):
-        for f in sorted(batch_dir.glob(ext)):
-            if any(kw in f.name for kw in ('追溯', 'escalation', 'trace', '调用指令')):
-                continue
-            files.append(f)
+    for batch_dir in dirs:
+        if not batch_dir.is_dir():
+            continue
+        for ext in ('*.json', '*.md'):
+            for f in sorted(batch_dir.glob(ext)):
+                if any(kw in f.name for kw in exclude_keywords):
+                    continue
+                files.append(f)
     return files

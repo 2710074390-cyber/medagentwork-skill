@@ -30,11 +30,34 @@
 | Agent 4 | `最终产物/{batchID}/` | `ALL_questions_FIXED.json`、**`ALL_questions_FIXED.md`（最终交付格式，强制）**、`AGENT4_追溯日志.json`、`AGENT4_修改声明.md`、`escalations_for_human.md` |
 | Agent 5 | `复习资料/{科目}教学计划版/` | `{科目}_主复习资料.md` |
 | 金标准 | `GoldenSet/` | 仅用户手动移入 |
-| 归档 | `archive/{类别}/{batchID}/` | 签收后归档（手动移动） |
+| 归档 | `archive/{类别}/{batchID}/` | 签收后归档（手动移动；**`_gate_ledger.json` 与回执绑定的产物要一起移动**——审计只认仍在 `最终产物/` 的批次，但半移动会让 `gate_audit` 判「产物不在」） |
 
 批次号格式 `batch{NNN}`（如 batch026）；子批用 `batch026-A/B/C` 时必须在 workflow_state 中登记说明。
 
-## 3. 门禁命令（每个阶段转换前强制执行）
+## 3. 门禁命令（每个阶段转换前强制执行 · 统一走 gate_run.py）
+
+> **唯一执行面（v2.5.0 起）**：阶段推进只跑 `gate_run.py`。下面第 3.1 节列的是它的**内部实现**——
+> 直接跑这些命令不会写回执，交付口（`qbank.py export-md` 写 `最终产物/{batch}/`）会拒收。
+> 排障时可以直跑看细节，但正式推进必须回到 `gate_run.py`。
+
+```bash
+cd <工作区>
+
+# ── 阶段门禁：唯一执行面（先验上游回执 → 跑门禁 → PASS 写回执）──
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage a2        # 出题后
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage a3        # 质检后
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage a4        # 修复后（交付前）
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage lv        # schema 2.0+ 批次
+python {SKILL}/scripts/gate_run.py --batch {batchID} --stage a5 --subject {科目}   # 复习资料
+python {SKILL}/scripts/gate_audit.py --all                             # 回执审计
+# 终审（质量汇总，不写回执、不作交付前置）：python {SKILL}/scripts/gate_check.py --batch {batchID} --stage final
+```
+
+> **终审 `final` 为什么不在回执链**：`gate_check.py --stage final` 读 `workflow_state` 的
+> `final_review.json_valid` 等**自述字段**，本 skill 流程不机械产生这些字段；把它做成回执前置
+> 会让诚实用户死锁。它仍可手动跑；交付闸门是 `a2/a3/a4/lv/a5` 回执 + `export-md` 交付口。
+
+### 3.1 门禁内部实现（gate_run 会调用；直跑不写回执）
 
 ```bash
 cd <工作区>
@@ -64,6 +87,30 @@ MD导出    python {SKILL}/scripts/qbank.py export-md --file 最终产物/{batch
   - 降级批次**没有金标准兜底**，答案正确性完全由 MedQC + 人工签收负责 —— 请据此调整信任预期。
   - 最小可用金标准模板：`{SKILL}/assets/golden_set_template.json`（10–20 题即可生效）。
 - **教师重点覆盖（HC-20/D0 · 2026-10-18）**：有教师重点/复习大纲输入的批次，Agent 5 交付前必须产出 `中间产物/{batchID}/{科目}_教师重点覆盖矩阵.md`（未覆盖/部分覆盖行数=0）；编排者在门禁A5 与终审前跑 `check_keypoint_coverage.py`，数值/时间窗/分级界值缺失或重点条目缺 `📌 重点原文（第X条）` 锚点 → exit 1 → 回退 Agent 5 补写（batch039 突发性聋时间窗丢失教训）。
+
+### 3.2 回执链、交付口与审计（v2.5.0 防跳过，任何宿主通用）
+
+**为什么**：换一个 agent 软件/模型，它可能不按本手册的命令跑，直接写 `最终产物/`。提示词不是约束。
+所以把「门禁执行」做成交付物的属性：
+
+| 机制 | 位置 | 行为 |
+|---|---|---|
+| 回执链 | `最终产物/{batch}/_gate_ledger.json` | 每阶段 PASS 写一条：「产物字节 sha256 + 门禁执行摘要」，`chain_prev` 链式相连；删/改/插都会断链 |
+| 上游验真 | `gate_run.py` preflight | 跑某阶段前先验所有前置阶段回执；缺回执/断链/字节不符 → **执行前 BLOCKED**（并给出「下一步命令」） |
+| 交付口 | `qbank.py export-md` | 往 `最终产物/{batch}/` 写交付 MD 前验 A2/A3/A4（schema 2.0+ 含 lv）回执与阶段顺序；缺回执/字节不符 → **exit 1**（不生成 MD） |
+| 交付 MD 绑定 | `qbank.py export-md` | 导出成功后追加 `export` 回执，把交付 MD 的字节也绑定；导出后手改 MD → `gate_audit` 判 `ARTIFACT_MISMATCH` |
+| 审计 | `gate_audit.py` | 产物在回执不在 / 断链 / 产物被改 / 签收缺阶段 / 批次号不合规 → FAIL；`--strict` 让在途批次也要求完整链 |
+
+> 终审 `final` 不参与回执链（读 `workflow_state` 自述字段，见 §3 说明）；交付闸门是
+> `a2 → a3 → a4 → export`。纯复习资料批次没有 CLI 交付口（复习资料 MD 由 Agent 直接写文件），
+> 其 `a5` 回执由 `gate_audit` 事后强制。
+
+- 回执是**本机证据**，用于证明「交付物与一次门禁执行绑定」，不做密码学防伪。**劣质伪造**（手改字段、漏算哈希）会断链/字节不符，必被审计判红；但用公开 API `gate_ledger.append_stamp` 构造一条**自洽的回执链**（不跑门禁）在本地无法与真实执行区分——真正的兜底是外部信任锚（CI 重跑门禁 / 分支保护 / 远端签名），本 skill 不假设用户有 CI。
+- `--dry-run` / `--no-stamp` 只跑门禁不写回执（调试口子）；这种产物交付口不放行。
+- 升级提示：v2.5.0 之前已在途的批次没有回执，**重跑一次确定性门禁即可补齐**（门禁幂等；旧批次无需回改产物）。
+- 审计判定：`gate_audit` 对「产物在、回执不在」「阶段顺序被重排」「签收批次缺 a4/export/a5」「交付 JSON 未被 a4 绑定」「交付 MD 未被 export 绑定」「批次目录不是 batchNNN」判 FAIL；对 SKIPPED 子门禁与 `--golden-absent` 降级判 WARN。押题卷交付 MD（`*押题*.md`）未被回执绑定时给 WARN（非 qbank 生成路径）。
+- 回执覆盖范围：`a2`/`a3`/`a4`/`lv` 绑定已知路径；`a5` 绑定实际复习资料 MD（按科目自动发现，`--review` 可显式指定）；`export` 绑定交付 MD 与 JSON。
+- **纯复习资料批次没有 CLI 交付口**（复习资料 MD 由 Agent 直接写文件），`a5` 回执由 `gate_audit` 事后强制；`export-md` 交付口只覆盖题库 MD。
 
 ### 门禁输入字段形状契约（2026-10-19 加固 · 防门禁误判）
 
@@ -106,6 +153,9 @@ python {SKILL}/scripts/fact_check.py golden --file 中间产物/{batchID}/ALL_qu
 
 | 症状 | 处置 |
 |---|---|
+| 交付口报 `LEDGER_MISSING` / `ARTIFACT_MISMATCH` | 该批次没跑过 A4 门禁（或产物被改过）：按交付口提示的顺序补跑（一般为 `gate_run.py --batch {batchID} --stage a2 → a3 → a4`；schema 2.0+ 再补 `lv`）。不要用 `--dry-run` 冒充 |
+| `gate_run` 报 `STAGE_MISSING`（前置阶段无回执） | 按输出的「下一步命令」从缺失阶段补跑；v2.5.0 之前的在途批次重跑一次即可补齐回执 |
+| `gate_audit.py --all` FAIL | 按批次输出逐条处理：缺回执补跑、字节不符重跑、链断查是否被手改（链断 = 回执文件被编辑） |
 | 门禁 BLOCKED | 读 gate 的 reason → 回退对应角色修复 → 重新运行门禁 |
 | JSON 解析失败 / YAML 前置 | 要求角色输出纯 JSON 数组，元数据单独 .md（batch006 教训） |
 | 教师重点覆盖门禁报“原文不存在”/ exit 2 | `--keypoints` 传入实际文件名（不是 `*`）；建议命名 `{科目}_教师重点_<学校或日期>.md`；多份重点先合并 |

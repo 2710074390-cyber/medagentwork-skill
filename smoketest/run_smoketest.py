@@ -1,5 +1,6 @@
-﻿"""冒烟测试：验证 skill 包在干净工作区可跑通核心链路。"""
+"""冒烟测试：验证 skill 包在干净工作区可跑通核心链路。"""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -272,5 +273,234 @@ r = run(f'python "{SCRIPTS + "/check_review_visual.py"}" --md "{visual_invalid}"
         f'--profile release_teacher_keypoint --quiet')
 check("视觉门禁拦截 details/**", r.returncode == 1, r.stdout[-300:] + r.stderr[:200])
 
+print("== 14. 防跳过门禁：真实 gate_run 链路（a2→a3→a4→export）+ 审计 ==")
+# 脚本按 cwd 定位工作区：本段所有命令都在测试工作区内执行（与真实用法一致）。
+os.chdir(WS)
+ledger_file = lambda b: WS / "最终产物" / b / "_gate_ledger.json"
+
+# 14.1 夹具：登记 legacy 批次（非 strict）+ 造 Bloom 均衡题库 + A3 报告 + A4 产物/追溯日志
+make_batch = WS / "_make_batch.py"
+make_batch.write_text(f'''
+import json, sys
+from pathlib import Path
+sys.path.insert(0, r"{SCRIPTS}")
+import workflow_state as ws
+import gate_check as gc
+
+batch = sys.argv[1]
+state, _ = ws.load_state()
+if not isinstance(state, dict):
+    state = {{"schema_version": 2}}
+b, _ = ws.ensure_batch(state, batch)
+b["subject"] = "示例科目"
+b["evidence_binding_mode"] = "legacy"  # 非 strict：夹具无需完整证据绑定
+ws.save_state(state)
+
+src = Path(r"{Path(SCRIPTS).parent.as_posix()}") / "assets/example_workspace/中间产物/batch001/ALL_questions.json"
+data = json.loads(src.read_text(encoding="utf-8"))
+for q, lvl in zip(data, ("记忆", "理解", "应用")):
+    q["bloom_level"] = lvl
+mid = Path("中间产物") / batch / "ALL_questions.json"
+mid.parent.mkdir(parents=True, exist_ok=True)
+mid.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+dist, _ = gc.recompute_bloom_from_qbank(batch, mid)
+qc = Path("质检报告") / batch / "A3_质检报告.json"
+qc.parent.mkdir(parents=True, exist_ok=True)
+qc.write_text(json.dumps({{
+    "report_metadata": {{"gate_decision": "PASS", "batch": batch}},
+    "gate_decision": "PASS",
+    "dimensions": {{"D20": 10}},
+    "bloom_distribution": {{"actual": dist}},
+    "overall_score": 90,
+}}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+fin = Path("最终产物") / batch / "ALL_questions_FIXED.json"
+fin.parent.mkdir(parents=True, exist_ok=True)
+fin.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+(Path("最终产物") / batch / "AGENT4_追溯日志.json").write_text(json.dumps({{
+    "batch": batch, "source_file_synced": True, "patches": []
+}}, ensure_ascii=False), encoding="utf-8")
+print("fixture ready", batch)
+''', encoding="utf-8")
+r = run(f'python "{make_batch}" batch020')
+check("夹具批次 batch020 就绪",
+      r.returncode == 0 and (WS / "中间产物" / "batch020" / "ALL_questions.json").exists(),
+      r.stdout[-300:] + r.stderr[:400])
+
+# 14.2 缺上游回执 → 执行前 BLOCKED，且不写回执
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch020 --stage a4')
+check("缺上游回执 → 执行前 BLOCKED", r.returncode == 1 and "BLOCKED" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
+check("BLOCKED 不写回执", not ledger_file("batch020").exists(), r.stdout[-200:])
+
+# 14.3 真实跑 a2 → a3 → a4（回归：telemetry 签名崩溃 / 状态步骤机械补写）
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch020 --stage a2')
+check("gate_run a2 真实 PASS 并写回执",
+      r.returncode == 0 and ledger_file("batch020").exists(), r.stdout[-300:] + r.stderr[:300])
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch020 --stage a3')
+check("gate_run a3 真实 PASS（telemetry 回归）", r.returncode == 0,
+      r.stdout[-400:] + r.stderr[:400])
+r = run(f'python "{SCRIPTS}/gate_ledger.py" verify --batch batch020 --stage a3')
+check("a3 回执验真 PASS", r.returncode == 0 and "PASS" in r.stdout, r.stdout[-300:])
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch020 --stage a4')
+check("gate_run a4 真实 PASS 并写回执", r.returncode == 0,
+      r.stdout[-400:] + r.stderr[:400])
+telemetry_probe = (f'python -c "import sys; sys.path.insert(0, r\'{SCRIPTS}\'); '
+                   "import telemetry; telemetry.log_gate_check('b','a3','PASS',reason='probe'); "
+                   "print('ok')\"")
+r = run(telemetry_probe)
+check("telemetry.log_gate_check 接受 reason=（P0 回归）",
+      r.returncode == 0 and "ok" in r.stdout, r.stdout[-300:] + r.stderr[:300])
+
+# 14.4 交付口：A2/A3/A4 回执齐全 → 放行，并写 export 回执绑定 MD
+r = run(f'python "{SCRIPTS}/qbank.py" export-md --file 最终产物/batch020/ALL_questions_FIXED.json')
+check("有 A2/A3/A4 回执 → 交付放行", r.returncode == 0 and
+      (WS / "最终产物" / "batch020" / "ALL_questions_FIXED.md").exists(),
+      r.stdout[-300:] + r.stderr[:300])
+r = run(f'python "{SCRIPTS}/gate_ledger.py" verify --batch batch020 --stage export')
+check("交付 MD 已写入 export 回执", r.returncode == 0 and "PASS" in r.stdout, r.stdout[-300:])
+r = run(f'python "{SCRIPTS}/gate_audit.py" --batch batch020')
+check("审计：完整链 PASS", r.returncode == 0 and "PASS" in r.stdout,
+      r.stdout[-400:] + r.stderr[:300])
+
+# 14.5 篡改 JSON → 字节绑定失效 → 交付拒收 + 审计 FAIL
+fixed_path = WS / "最终产物" / "batch020" / "ALL_questions_FIXED.json"
+original_bytes = fixed_path.read_bytes()
+fixed_path.write_bytes(original_bytes + b"\n")
+r = run(f'python "{SCRIPTS}/qbank.py" export-md --file 最终产物/batch020/ALL_questions_FIXED.json')
+check("篡改 JSON → 交付被拒", r.returncode == 1 and "ARTIFACT_MISMATCH" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
+r = run(f'python "{SCRIPTS}/gate_audit.py" --batch batch020')
+check("审计：篡改 JSON FAIL", r.returncode == 1 and "ARTIFACT_MISMATCH" in r.stdout,
+      r.stdout[-400:] + r.stderr[:200])
+fixed_path.write_bytes(original_bytes)
+r = run(f'python "{SCRIPTS}/qbank.py" export-md --file 最终产物/batch020/ALL_questions_FIXED.json')
+check("还原 JSON 后交付恢复", r.returncode == 0, r.stdout[-300:] + r.stderr[:300])
+
+# 14.6 篡改交付 MD → export 回执字节不符 → 审计 FAIL；重新导出恢复
+md_path = WS / "最终产物" / "batch020" / "ALL_questions_FIXED.md"
+md_path.write_text(md_path.read_text(encoding="utf-8") + "\n手改一行\n", encoding="utf-8")
+r = run(f'python "{SCRIPTS}/gate_audit.py" --batch batch020')
+check("审计：手改交付 MD FAIL", r.returncode == 1 and "ARTIFACT_MISMATCH" in r.stdout,
+      r.stdout[-400:] + r.stderr[:200])
+r = run(f'python "{SCRIPTS}/qbank.py" export-md --file 最终产物/batch020/ALL_questions_FIXED.json')
+check("重新导出后交付恢复", r.returncode == 0, r.stdout[-300:] + r.stderr[:300])
+r = run(f'python "{SCRIPTS}/gate_audit.py" --batch batch020')
+check("审计：重新导出后 PASS", r.returncode == 0 and "PASS" in r.stdout,
+      r.stdout[-400:] + r.stderr[:200])
+
+# 14.7 删回执链 → 交付拒收
+ledger_backup = ledger_file("batch020").read_bytes()
+ledger_file("batch020").unlink()
+r = run(f'python "{SCRIPTS}/qbank.py" export-md --file 最终产物/batch020/ALL_questions_FIXED.json')
+check("删回执 → 交付拒收", r.returncode == 1 and "LEDGER_MISSING" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
+ledger_file("batch020").write_bytes(ledger_backup)
+
+# 14.8 插入伪造回执 → 断链检测
+insert_helper = WS / "_insert_bad_stamp.py"
+insert_helper.write_text(f'''
+import sys
+sys.path.insert(0, r"{SCRIPTS}")
+import gate_ledger as gl
+led, err = gl.load_ledger("batch020")
+if err or led is None:
+    raise SystemExit(err or "no ledger")
+led["stamps"].append({{"seq": 99, "stage": "a4", "verdict": "PASS", "artifacts": []}})
+gl.write_ledger(led)
+print("inserted")
+''', encoding="utf-8")
+r = run(f'python "{insert_helper}"')
+check("插入伪造回执", r.returncode == 0, r.stdout[-200:] + r.stderr[:300])
+r = run(f'python "{SCRIPTS}/gate_ledger.py" verify --batch batch020 --stage a4')
+check("伪造回执 → 断链",
+      r.returncode == 1 and ("CHAIN_BROKEN" in r.stdout or "SEQ_MISMATCH" in r.stdout),
+      r.stdout[-300:] + r.stderr[:200])
+ledger_file("batch020").write_bytes(ledger_backup)
+
+# 14.9 dry-run 不写回执；跳过 a3 直接 a4 → BLOCKED
+r = run(f'python "{make_batch}" batch021')
+check("夹具批次 batch021 就绪", r.returncode == 0, r.stdout[-200:] + r.stderr[:300])
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch021 --stage a2 --dry-run')
+check("dry-run 通过但不写回执", r.returncode == 0 and not ledger_file("batch021").exists(),
+      r.stdout[-300:] + r.stderr[:200])
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch021 --stage a2')
+check("batch021 a2 写回执", r.returncode == 0 and ledger_file("batch021").exists(),
+      r.stdout[-300:] + r.stderr[:200])
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch021 --stage a4')
+check("跳过 a3 直接 a4 → BLOCKED", r.returncode == 1 and "BLOCKED" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
+
+# 14.10 非 batchNNN 目录：交付口与审计都不放行（防「换名字让防护静默失效」）
+bad_dir = WS / "最终产物" / "batch1"
+bad_dir.mkdir(parents=True, exist_ok=True)
+shutil.copy(WS / "最终产物" / "batch020" / "ALL_questions_FIXED.json",
+            bad_dir / "ALL_questions_FIXED.json")
+r = run(f'python "{SCRIPTS}/qbank.py" export-md --file 最终产物/batch1/ALL_questions_FIXED.json')
+check("非 batchNNN 目录 → 交付拒收", r.returncode == 1 and "BATCH_NAME_INVALID" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
+r = run(f'python "{SCRIPTS}/gate_audit.py" --batch batch1')
+check("非 batchNNN 目录 → 审计 FAIL", r.returncode == 1 and "BATCH_NAME_INVALID" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
+
+# 14.11 阶段适用性机械判定（纯题库批次跳过 a5；纯复习资料批次跳过 a2/a3/a4/lv）
+review_only = WS / "_make_review_only.py"
+review_only.write_text(f'''
+import sys
+sys.path.insert(0, r"{SCRIPTS}")
+import workflow_state as ws
+state, _ = ws.load_state()
+if not isinstance(state, dict):
+    state = {{"schema_version": 2}}
+b, _ = ws.ensure_batch(state, "batch030")
+b["subject"] = "示例科目"
+b["product_types"] = ["review_material"]
+ws.save_state(state)
+print("ok")
+''', encoding="utf-8")
+r = run(f'python "{review_only}"')
+check("复习资料批次登记", r.returncode == 0, r.stdout[-200:] + r.stderr[:300])
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch030 --stage a2')
+check("纯复习资料批次：a2 机械判定 NOT_APPLICABLE",
+      r.returncode == 0 and "NOT_APPLICABLE" in r.stdout and not ledger_file("batch030").exists(),
+      r.stdout[-300:] + r.stderr[:200])
+r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch021 --stage a5')
+check("纯题库批次：a5 机械判定 NOT_APPLICABLE",
+      r.returncode == 0 and "NOT_APPLICABLE" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
+
+# 14.12 输出路径含 ".."：交付口按解析后的真实落点判定（不能靠路径段骗过）
+r = run(f'python "{SCRIPTS}/qbank.py" export-md --file 最终产物/batch020/ALL_questions_FIXED.json '
+        f'--out "最终产物/batch020/../../最终产物/batch1/ALL_questions_FIXED.md"')
+check("输出路径含 .. → 按真实落点拒绝", r.returncode == 1 and "BATCH_NAME_INVALID" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
+
+# 14.13 schema 2.0+ 批次：缺 lv 回执 → 交付口拒绝
+r = run(f'python "{make_batch}" batch022')
+check("夹具批次 batch022 就绪", r.returncode == 0, r.stdout[-200:] + r.stderr[:300])
+schema20 = WS / "_set_schema20.py"
+schema20.write_text('''
+import json
+from pathlib import Path
+for rel in ("中间产物/batch022/ALL_questions.json", "最终产物/batch022/ALL_questions_FIXED.json"):
+    p = Path(rel)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    for q in data:
+        q["schema_version"] = "2.0"
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+print("ok")
+''', encoding="utf-8")
+r = run(f'python "{schema20}"')
+check("batch022 标为 schema 2.0", r.returncode == 0, r.stdout[-200:] + r.stderr[:300])
+for stage in ("a2", "a3", "a4"):
+    r = run(f'python "{SCRIPTS}/gate_run.py" --batch batch022 --stage {stage}')
+    if r.returncode != 0:
+        break
+check("schema 2.0+ 批次 a2→a3→a4 写回执", r.returncode == 0,
+      r.stdout[-400:] + r.stderr[:300])
+r = run(f'python "{SCRIPTS}/qbank.py" export-md --file 最终产物/batch022/ALL_questions_FIXED.json')
+check("schema 2.0+ 缺 lv → 交付拒收", r.returncode == 1 and "STAGE_MISSING" in r.stdout and "lv" in r.stdout,
+      r.stdout[-300:] + r.stderr[:200])
 print(f"\n{'=' * 40}\n结果: {PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

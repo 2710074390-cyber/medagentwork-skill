@@ -100,6 +100,40 @@
 - **除 `init_workspace.py` 这类初始化脚本外，门禁/渲染脚本必须在工作区目录下运行**（脚本按 `cwd` 定位 `中间产物/`、`workflow_state.json`）
 - 核心管线需 **Python 3.10+**；可选依赖见 `requirements-optional.txt`
 
+## 门禁不可跳过（v2.5.0 防跳过层）
+
+> 触发问题：「换一个 agent 软件 / 模型，它不按 SKILL 里写的命令跑，直接写交付物怎么办？」
+> 原项目的答案是：**提示词不是约束**。所以 v2.5.0 把「门禁执行」做成了交付物自己的属性。
+
+| 层 | 机制 | 落点 |
+|---|---|---|
+| ① 单一执行入口 | `a2/a3/a4/lv/a5` 只通过 `gate_run.py` 跑：先验上游回执 → 跑门禁 → **PASS 才写回执** | `scripts/gate_run.py` |
+| ② 回执链 | 「产物字节 sha256 + 门禁执行摘要」按 `chain_prev` 链式绑定；删/改/插一条都会断链 | `最终产物/{batch}/_gate_ledger.json` |
+| ③ 交付口硬闸 | `qbank.py export-md` 往 `最终产物/{batch}/` 写交付 MD 前，验 A2/A3/A4（schema 2.0+ 含 lv）回执与阶段顺序；缺回执 / 字节不符 → **exit 1** | `scripts/qbank.py` |
+| ④ 交付 MD 绑定 | 导出成功后追加 `export` 回执绑定 MD 字节；导出后手改 MD → 审计 `ARTIFACT_MISMATCH` | `scripts/qbank.py` |
+| ⑤ 事后审计 | 扫 `最终产物/` 下全部批次：产物在回执不在 / 断链 / 产物被改 / 签收缺阶段 / 批次号不合规 → FAIL | `scripts/gate_audit.py` |
+
+```bash
+cd <工作区>
+python {SKILL}/scripts/gate_run.py --batch batch001 --stage a2   # 出题后
+python {SKILL}/scripts/gate_run.py --batch batch001 --stage a3   # 质检后
+python {SKILL}/scripts/gate_run.py --batch batch001 --stage a4   # 修复后（交付前）
+python {SKILL}/scripts/gate_run.py --batch batch001 --stage lv   # schema 2.0+ 批次
+python {SKILL}/scripts/gate_run.py --batch batch001 --stage a5   # 复习资料（纯题库批次自动跳过）
+python {SKILL}/scripts/gate_audit.py --all                       # 回执审计
+```
+
+> **终审 `final` 不在回执链**：`gate_check.py --stage final` 读 `workflow_state` 自述字段，本 skill
+> 流程不机械产生，做成回执前置会让诚实用户死锁；它仍可手动跑，属质量汇总而非交付闸门。
+
+**为什么它能防住「别的软件跳过」**：闸门在 **Python 脚本**里，不在提示词里——不依赖任何宿主 hook、不依赖
+宿主是否加载了 SKILL.md、也不依赖 agent 是否读了规则。agent 完全无视本文时，**走 `export-md` 这条交付路径**
+的产物仍必须先过 A2/A3/A4 门禁；跳过门禁**拿不到交付 MD**，事后审计还能把「产物在、回执不在」判红。
+
+**边界（诚实声明）**：本地无法 100% 阻止伪造/绕开——有 shell 的 agent 能自己 append 回执，也能**绕开
+`export-md` 直接写文件**（这时只有 `gate_audit` 能事后发现）。这套机制保证的是**跳过必留痕（缺回执/断链/
+字节不符）+ 走 `export-md` 的交付必拒收 + 审计可复核**，不是密码学防伪，也不是文件系统级围栏。
+
 ## 安装
 
 技能采用通用 Agent Skills 格式（SKILL.md + scripts/ + references/ + schemas/ + assets/ + pipeline.yaml），支持 40+ 兼容客户端。
@@ -139,7 +173,7 @@ TRAE 也支持 **导入 .zip**（设置 → 技能与命令 → 创建 → 上�
 
 **其他兼容环境**：任何支持 Agent Skills（SKILL.md）规范的宿主均可，将 `skills/medagentwork/` 放入对应技能目录即可。
 
-**安装自检**（可选）：`python smoketest/run_smoketest.py` 会在临时工作区跑通「批次登记 → 坏题阻断 → 修复 → FAIL==0 放行 → MD 导出 → 规则命中断言 → 示例工作区引导 → 视觉门禁」全链路（32 项断言），用于确认脚本在你机器上可用。如果只安装了 `skills/medagentwork/`，改用 `python {SKILL}/scripts/doctor.py --workspace <工作区>`。
+**安装自检**（可选）：`python smoketest/run_smoketest.py` 会在临时工作区跑通「批次登记 → 坏题阻断 → 修复 → FAIL==0 放行 → MD 导出 → 规则命中断言 → 示例工作区引导 → 视觉门禁 → **真实 a2→a3→a4→export 防跳过链路**」全链路（66 项断言），用于确认脚本在你机器上可用。如果只安装了 `skills/medagentwork/`，改用 `python {SKILL}/scripts/doctor.py --workspace <工作区>`。
 
 > 下文用 `{SKILL}` 表示技能安装目录（即包含 `SKILL.md` 的目录）。手动复制到 `.trae/skills/medagentwork/` 后，`{SKILL}` 就是该目录，不要再套一层 `skills/medagentwork`。
 
@@ -288,7 +322,7 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
 ├── tools/
 │   └── preflight_publish.py # 投稿/发布前预检（frontmatter + 悬空链接）
 ├── smoketest/
-│   └── run_smoketest.py     # 冒烟测试（32 项断言，含规则命中、首次使用引导与视觉门禁）
+│   └── run_smoketest.py     # 冒烟测试（66 项断言，含规则命中、首次使用引导、视觉门禁与真实防跳过链路）
 └── skills/medagentwork/
     ├── SKILL.md             # 技能入口：定位与适用边界 + 安全说明 + 管线总览 + 门禁速查
     ├── references/          # 按需加载的角色手册与规则
@@ -310,6 +344,7 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
     │   ├── pipeline_config.py / quality_policy.py / quality_policy.json  # 题库阈值与 R0–R4 策略（单一事实来源）
     │   ├── validate_options.py / validate/                          # R1–R13 + B1/JS1/S3 规则引擎
     │   ├── gate_check.py / quality_gate.py                          # 阶段门禁（GATE-A2~终审）与 R0–R4 编排
+    │   ├── gate_run.py / gate_ledger.py / gate_audit.py             # 防跳过：阶段门禁唯一执行面 / 回执链 / 审计
     │   ├── workflow_state.py / contract_check.py                    # 状态原子写与产物契约校验
     │   ├── bloom_sampler.py / fact_check.py / frequency_analyzer.py / kaoyan_picker.py  # 分布、事实、考点与金标准配额
     │   ├── check_keypoint_coverage.py / check_learning_value.py     # HC-20 重点覆盖 / HC-24 学习价值门禁
@@ -350,9 +385,10 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 
 ## 变更记录
 
-见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.4**。
+见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.5**。
 
-- **未发布（本地）**：首次使用引导补全——新增 `doctor.py`、`init_workspace.py --example`、3 题可运行示例，统一安装路径/教师重点命名/`validate_options.py` 退出码口径；新增复习资料视觉规范、`review-visual.css` 与 `check_review_visual.py`，并解决 `<details>`/复习资料 HTML 的口径冲突。
+- **v2.5（2026-11-06）**：**防跳过门禁**——新增 `gate_run.py`（阶段门禁唯一执行面：preflight 验上游回执 → 跑门禁 → PASS 写回执）、`gate_ledger.py`（产物字节 + `chain_prev` 回执链）、`gate_audit.py`（工作区审计）；`qbank.py export-md` 增加交付口验真（验 A2/A3/A4 回执与阶段顺序，导出后把 MD 字节也绑进 `export` 回执）；冒烟测试 66 项（含真实 a2→a3→a4→export 链路）；并修掉 telemetry 签名、`workflow_state` halt 作用域、GATE-A4 与 MD 死锁、validate 批次发现等既有缺陷。
+- **v2.5 之前的本地改动（随 v2.5 一并发布）**：首次使用引导补全——新增 `doctor.py`、`init_workspace.py --example`、3 题可运行示例，统一安装路径/教师重点命名/`validate_options.py` 退出码口径；新增复习资料视觉规范、`review-visual.css` 与 `check_review_visual.py`，并解决 `<details>`/复习资料 HTML 的口径冲突。
 - **v2.4（2026-10-31）**：面向分发优化：新增独立工作区初始化、可移植 R0–R4 质量门禁、本校考试重点快速开始流程，并更新插件版本元数据。
 - **v2.3（2026-10-31）**：对齐原项目 10-23 ~ 10-31 的规则线——**HC-25 全流程质量基准**（R0–R4 阶段门禁 + `quality_policy.json` 阈值单一事实来源）、**HC-26 复习资料详细度**（九槽位 + 模块八块 + 自测对账，新增 `check_review_detail.py`）、**HC-27 概念层**（概念图 / 标注 / C1–C8 门禁 / Obsidian 概念卡，新增 5 个脚本）、**HC-22 真题双族配额**，并补齐此前被引用但未分发的 `check_learning_value.py`。
 - **v2.2（2026-09-21）**：移除全部插图相关功能。
@@ -373,6 +409,7 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 
 - **除 `init_workspace.py` / `doctor.py` 这类初始化/自检脚本外，门禁/渲染脚本必须在工作区目录下运行**（脚本按当前目录定位 `中间产物/`、`workflow_state.json` 等）：`cd <工作区> && python {SKILL}/scripts/xxx.py ...`
 - 工作区建议先运行 `{SKILL}/scripts/init_workspace.py` 创建；它不会修改 skill 包。首次使用建议再跑一次 `doctor.py`。
+- **阶段门禁只跑 `gate_run.py`**（唯一执行面）；直接跑 `validate_options.py` / `gate_check.py` **不写回执**，`qbank.py export-md` 会拒绝把交付 MD 写进 `最终产物/`。`--dry-run` 只用于调试，产物不可交付。
 - `validate_options.py` 的退出码口径：**FAIL>0 → 1；仅 WARN → 0；文件缺失/未解析到题目 → 2**。WARN 不阻断交付，但应记录并在下一版收敛。
 - **教师重点使用你自己学校的版本**；文件名建议为 `<科目>_教师重点_<学校或日期>.md`。换学校时只换 `输入素材/<科目>/` 下的重点文件，不改管线。
 - 金标准（GoldenSet）只允许用户手动维护——真题/权威题库由你自行放入；没有金标准时必须显式使用 `--golden-absent` 降级。
@@ -388,6 +425,7 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 - **Bloom 独立重算**：不采信 LLM 自述的认知分布，从题库重算并交叉验证
 - **规则命中有测试**：冒烟测试断言 R1、R2、R5、R7、R8、R10–R13 与 JS1 真的被触发，而不是只验“脚本能跑”
 - **视觉规范即事实来源**：复习资料的 token、字号、Callout、表格与打印规则集中在 `references/review-visual-spec.md`，并由 `check_review_visual.py` 机械检查，不再散落在提示词与渲染器里
+- **防跳过靠机制，不靠纪律（v2.5）**：阶段门禁统一走 `gate_run.py` 并写回执链；交付口验 A2/A3/A4 回执、导出后绑定交付 MD、`gate_audit.py` 复核——提示词与宿主 hook 都不承担约束职责（走 `export-md` 的交付路径换任何宿主软件都绕不过；直接写文件属本地边界）
 
 ## 许可
 
