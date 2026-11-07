@@ -5,6 +5,37 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [v2.6.0] — 2026-11-07
+
+> **跨宿主编排**：v2.5.0 把「门禁」做成宿主无关的机械约束；本版把「派活」也变成宿主无关的**数据**。
+> 起因是分发版的角色提示词残留 Cherry Studio / DSH subagent 表述——没有子代理能力的宿主会断在第一步。
+
+### 新增
+
+- `scripts/host_handoff.py`：`build` 生成 `中间产物/{batch}/_handoff/{stage}.json`，`brief` 打印人读交接单。
+  字段含 `owner / role_skill / prompt_ref / inputs[path,sha256,exists,read,selector] / outputs / preflight /
+  gate / done / report_format / write_scope / parallel_safe / supported_levels / inputs_fingerprint / rebuild_if`。
+  **包里不含任何宿主工具名**；哈希复用 `gate_ledger.file_sha256`（与回执链同一真相源）；内容无时间戳、重复 build 同一字节；
+  `inputs_fingerprint` 与当前产物不符即判包过期（`brief` exit 3）。
+- `references/host-portability.md`：交接包契约、L2（隔离子代理）/ L1（单会话顺序 + `_ctx.md` 复位）/
+  L0（人工接力）三档消费方式、三条纪律、命令与边界。
+- 新增 `tests/test_host_handoff.py`：契约字段、幂等、过期判定、无工具名、brief 输出的回归。
+
+### 变更
+
+- `SKILL.md`：新增 §7.2「跨宿主编排」；front-matter `tools` 补 `workbuddy, dsh`；§8 差异表中「DSH subagent 编排」改为交接包驱动。
+- `references/medmaster.md`、`references/runbook.md` §3.3：阶段调用改读交接包，必读清单加入 `host-portability.md`。
+- 五个角色提示词清除宿主残留：`MedMaster_current_prompt.md` / `MedFix_current_prompt.md` 的「Cherry Studio 中运行的 AI 智能体」
+  改为「宿主无关」，`MedGen_current_prompt.md` 的单次输出上限规则改为不依赖宿主名称的通用预算表述。
+- `README.md` 新增「跨宿主编排」章节、目录结构与变更记录；`.claude-plugin/marketplace.json` 版本升至 `2.6.0`。
+
+### 不变（刻意）
+
+- **不改 `gate_run.py` / `gate_ledger.py` / `gate_audit.py`**：交接包只是执行指令，不进回执链、不写回执、不跑门禁；
+  证据仍由 v2.5.0 的防跳过层产出。
+- **不追溯历史批次**：交接包只在下次 `build` 后落盘；无包时 `brief` 提示先跑 `build`。
+- **bundle schema 与主仓一致**（`1.0`）：主仓 `scripts/batch_driver.py` 的 `check` / `brief` 与本工具字段口径对齐，便于对照。
+
 ## [v2.5] — 2026-11-06
 
 > **防跳过门禁**：把「阶段门禁必须真跑」从提示词纪律变成**机械约束**。触发问题是「换一个

@@ -134,6 +134,29 @@ python {SKILL}/scripts/gate_audit.py --all                       # 回执审计
 `export-md` 直接写文件**（这时只有 `gate_audit` 能事后发现）。这套机制保证的是**跳过必留痕（缺回执/断链/
 字节不符）+ 走 `export-md` 的交付必拒收 + 审计可复核**，不是密码学防伪，也不是文件系统级围栏。
 
+## 跨宿主编排（v2.6.0 宿主无关交接包）
+
+> v2.5.0 解决了「换宿主会不会跳过门禁」，v2.6.0 解决「换宿主还能不能跑编排」。
+> 门禁层本来就是纯 Python、与宿主无关；现在把**派活**也从提示词变成数据。
+
+`scripts/host_handoff.py build` 生成 `中间产物/{batch}/_handoff/{stage}.json`：
+`owner / role_skill / inputs[].path+sha256+read / outputs[] / preflight / gate / done / write_scope / parallel_safe`。
+包里**不含任何宿主工具名**，哈希复用 `gate_ledger.file_sha256`（与回执链同一真相源），内容无时间戳、重复生成同一字节。
+
+| 档 | 宿主 | 消费方式 |
+|---|---|---|
+| L2 | 可派生隔离子代理（DSH / WorkBuddy / Claude Code 等） | 派子任务，`parallel_safe=true` 的阶段可并行 |
+| L1 | 单会话 IDE Agent（Trae / Cursor 等） | 同会话按序执行，每阶段重读 `_ctx.md`，按 `inputs[].read` 限读 |
+| L0 | 无 Agent / 人工 | `brief` 打印人读交接单 |
+
+```bash
+python {SKILL}/scripts/host_handoff.py build --batch batchNNN --stage a3
+python {SKILL}/scripts/host_handoff.py brief --batch batchNNN --stage a3
+```
+
+**三条纪律**：包里不写工具名；`write_scope=question_bank` 任何宿主不并发写；`inputs_fingerprint` 不符即包过期，重跑 `build`。
+完整契约见 `skills/medagentwork/references/host-portability.md`。
+
 ## 安装
 
 技能采用通用 Agent Skills 格式（SKILL.md + scripts/ + references/ + schemas/ + assets/ + pipeline.yaml），支持 40+ 兼容客户端。
@@ -338,6 +361,7 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
     │   ├── review-visual-spec.md # 复习资料视觉/排版规范（token/字体/卡片/打印/Obsidian）
     │   ├── concept-layer.md #   HC-27 概念标注与概念层（节点/三类边/C1–C8/概念卡）
     │   ├── bpa-v1.md        #   教师重点蓝图版（BPA v1.0）生成规则
+    │   ├── host-portability.md # v2.6.0 交接包契约与 L2/L1/L0 三档（跨宿主必读）
     │   └── prompts/         #   五个角色的完整提示词（路径已清洗为分享版）
     ├── scripts/             # 全部门禁/状态/渲染脚本（纯标准库）
     │   ├── init_workspace.py / doctor.py / save.py / ingest.py / utils.py  # 工作区初始化、首次使用自检、产物摄入与公共工具
@@ -345,6 +369,7 @@ python {SKILL}/scripts/kaoyan_picker.py check --file ... --golden-absent
     │   ├── validate_options.py / validate/                          # R1–R13 + B1/JS1/S3 规则引擎
     │   ├── gate_check.py / quality_gate.py                          # 阶段门禁（GATE-A2~终审）与 R0–R4 编排
     │   ├── gate_run.py / gate_ledger.py / gate_audit.py             # 防跳过：阶段门禁唯一执行面 / 回执链 / 审计
+    │   ├── host_handoff.py                                          # v2.6.0 宿主无关交接包（build / brief，哈希与回执同源）
     │   ├── workflow_state.py / contract_check.py                    # 状态原子写与产物契约校验
     │   ├── bloom_sampler.py / fact_check.py / frequency_analyzer.py / kaoyan_picker.py  # 分布、事实、考点与金标准配额
     │   ├── check_keypoint_coverage.py / check_learning_value.py     # HC-20 重点覆盖 / HC-24 学习价值门禁
@@ -385,8 +410,9 @@ python tools/preflight_publish.py --strict    # 致命=0 警告=0 即通过
 
 ## 变更记录
 
-见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.5**。
+见 [CHANGELOG.md](CHANGELOG.md)。当前发布版本 **v2.6.0**。
 
+- **v2.6.0（2026-11-07）**：**跨宿主编排**——新增 `host_handoff.py`（`build` / `brief`，生成宿主无关的阶段交接包，字段含 `inputs_fingerprint` 过期判定）、`references/host-portability.md` 规范；五角色提示词清除 Cherry Studio / DSH subagent 残留，改为按交接包 + L2/L1/L0 三档执行；`SKILL.md` 增加 §7.2 与 `tools` 宿主清单；`medmaster.md` / `runbook.md` / README 同步接线。交接包哈希复用 `gate_ledger.file_sha256`，不侵入 `gate_run.py`、不改回执语义。
 - **v2.5（2026-11-06）**：**防跳过门禁**——新增 `gate_run.py`（阶段门禁唯一执行面：preflight 验上游回执 → 跑门禁 → PASS 写回执）、`gate_ledger.py`（产物字节 + `chain_prev` 回执链）、`gate_audit.py`（工作区审计）；`qbank.py export-md` 增加交付口验真（验 A2/A3/A4 回执与阶段顺序，导出后把 MD 字节也绑进 `export` 回执）；冒烟测试 66 项（含真实 a2→a3→a4→export 链路）；并修掉 telemetry 签名、`workflow_state` halt 作用域、GATE-A4 与 MD 死锁、validate 批次发现等既有缺陷。
 - **v2.5 之前的本地改动（随 v2.5 一并发布）**：首次使用引导补全——新增 `doctor.py`、`init_workspace.py --example`、3 题可运行示例，统一安装路径/教师重点命名/`validate_options.py` 退出码口径；新增复习资料视觉规范、`review-visual.css` 与 `check_review_visual.py`，并解决 `<details>`/复习资料 HTML 的口径冲突。
 - **v2.4（2026-10-31）**：面向分发优化：新增独立工作区初始化、可移植 R0–R4 质量门禁、本校考试重点快速开始流程，并更新插件版本元数据。

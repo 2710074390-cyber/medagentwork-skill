@@ -143,6 +143,21 @@ python {SKILL}/scripts/fact_check.py golden --file 中间产物/{batchID}/ALL_qu
 - `golden` 冲突（术语相似但数值不一致）→ 人工核对后裁决
 - 科目缺分块索引时 pages 自动跳过（提示 WARN，不阻断）
 
+## 3.3 跨宿主编排：交接包（v2.6.0）
+
+角色接力不依赖宿主的 subagent 能力。阶段派活由交接包驱动：
+
+```bash
+python {SKILL}/scripts/host_handoff.py build --batch batchNNN --stage a3   # 生成包（幂等）
+python {SKILL}/scripts/host_handoff.py brief --batch batchNNN --stage a3   # 人读交接单（L0）
+python {SKILL}/scripts/gate_audit.py --batch batchNNN                      # 派活前先验回执链
+python {SKILL}/scripts/gate_run.py --batch batchNNN --stage a3              # 阶段门禁（内建 preflight）
+```
+
+包落 `中间产物/{batch}/_handoff/{stage}.json`，只描述数据与命令、不含工具名；L2 派生子任务 /
+L1 同会话顺序执行 / L0 人工接力消费同一份包。`inputs_fingerprint` 与产物不符即过期，重跑 `build`。
+`write_scope=question_bank` 恒不并发写。完整契约见 `references/host-portability.md`。
+
 ## 4. 状态与记忆
 
 - `workflow_state.json`：批次状态/步骤/血缘/门禁结果。由编排者或 ingest/save/gate_check 更新，**子代理不得直接改写**（HC-17，统一走 `workflow_state.py`）

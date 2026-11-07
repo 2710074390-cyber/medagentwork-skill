@@ -8,7 +8,7 @@ date_added: "2026-09-21"
 author: 2710074390-cyber
 license: MIT
 tags: [medical-education, question-generation, quality-gate, llm-pipeline, agent-workflow]
-tools: [claude, cursor, gemini, codex, opencode, kiro, trae]
+tools: [claude, cursor, gemini, codex, opencode, kiro, trae, workbuddy, dsh]
 ---
 
 # MedAgentWork — 医学题库生产管线
@@ -355,6 +355,27 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 
 一句话：**门禁是"防呆"，不是"防错"。它挡得住格式崩坏与自述造假，挡不住内容本身是错的。**
 
+## 7.2 跨宿主编排：交接包与能力等级（v2.6.0 起）
+
+五个角色**不靠宿主的子代理能力接力**。阶段派活由 `scripts/host_handoff.py` 生成一份
+`中间产物/{batch}/_handoff/{stage}.json`：包里只写「读什么 / 写什么 / 先验哪条回执 / 过哪道门禁 /
+怎么算完成」，**不含任何宿主工具名**。哈希复用 `gate_ledger.file_sha256`，与回执链同源。
+
+| 档 | 宿主 | 消费方式 |
+|---|---|---|
+| L2 | 可派生隔离子代理（DSH / WorkBuddy / Claude Code 等） | 读包 → 派子任务；`parallel_safe=true` 的阶段可并行 |
+| L1 | 单会话 IDE Agent（Trae / Cursor 等） | 同会话按包顺序执行，每阶段重读 `_ctx.md`，按 `inputs[].read` 限定读入范围 |
+| L0 | 无 Agent / 人工接力 | `host_handoff.py brief` 打印人读交接单 |
+
+```bash
+python {SKILL}/scripts/host_handoff.py build --batch batchNNN --stage a3
+python {SKILL}/scripts/host_handoff.py brief --batch batchNNN --stage a3
+```
+
+三条纪律：① 包里不写工具名；② `write_scope=question_bank`（`parallel_safe=false`）**任何宿主都不许并发写**；
+③ `inputs_fingerprint` 与当前产物不符即包过期，重跑 `build` 再用。完整规范见
+`references/host-portability.md`。
+
 ## 8. 与原版的差异（缩减说明）
 
 | 原版特性 | skill 版处理 |
@@ -363,7 +384,7 @@ HC-18 要求每批**至少 15%–20% 为金标准引用题**（`kaoyan_picker.py
 | 考研真题库内容 | 机制保留（`kaoyan_picker.py`，支持 `--upper/--lower` 自定义金标准），真题数据用户自备（版权） |
 | Cloudflare 站点部署 / 访问计数 | 不含（线上站与本地管线无关） |
 | MedKit 桌面生成器 | 不含（独立仓库） |
-| DSH subagent 编排 | 通用化：单会话顺序执行各阶段（宿主支持 subagent 时可并行） |
+| 原版 DSH subagent 编排 | **v2.6.0 已宿主无关**：由 `host_handoff.py` 的交接包驱动，L2 派生子任务 / L1 单会话顺序 / L0 人工接力，三档消费同一份包（见 §7.2） |
 | 跨工作区运维（maintenance/healthcheck） | 不含（原项目专属运维） |
 | 组卷器（paper_builder.py）与难度校准数据 | 不含（依赖用户自备真题；`pipeline.yaml` 中仅留设计说明） |
 | `pipeline.yaml` 中的 RAG / 运维脚本声明 | 已清理（v2.1）：移除未分发的 `chunk_size/top_n/hybrid_search` 与 `runbook.patterns` 脚本引用，改为只声明真实存在的能力 |
