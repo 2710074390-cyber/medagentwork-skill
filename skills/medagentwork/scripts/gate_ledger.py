@@ -16,10 +16,10 @@
 --------------
     最终产物/{batch}/_gate_ledger.json
     {"schema_version": "1.0", "batch": "batch001", "created_at": "...",
-     "tool": "gate_run@2.5.0", "head": "sha256:...",
+     "tool": "gate_run@2.6.0", "head": "sha256:...",
      "stamps": [
        {"seq": 1, "stage": "a2", "verdict": "PASS", "provenance": "gate_run",
-        "ts": "...", "tool": "gate_run@2.5.0",
+        "ts": "...", "tool": "gate_run@2.6.0",
         "artifacts": [{"path": "中间产物/batch001/ALL_questions.json",
                        "sha256": "...", "bytes": 123}],
         "gate_reports": [{"path": "reports/validate/...", "sha256": "..."}],

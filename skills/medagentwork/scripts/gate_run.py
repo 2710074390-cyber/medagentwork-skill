@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""gate_run.py —— 阶段门禁的**唯一执行入口**（v2.5.0 防跳过层）。
+"""gate_run.py —— 阶段门禁的**唯一执行入口**（v2.5.0 引入防跳过层 · 当前 v2.6.0）。
 
 为什么存在
 ----------
@@ -60,7 +60,7 @@ import gate_ledger as ledger
 
 BASE = Path.cwd()
 SCRIPTS = Path(__file__).resolve().parent
-TOOL = "gate_run@2.5.0"
+TOOL = "gate_run@2.6.0"
 STAGES = ("a2", "a3", "a4", "lv", "a5")
 STAGE_LABEL = {
     "a2": "GATE-A2（题库校验）",
@@ -433,7 +433,7 @@ def stamp_stage(batch: str, stage: str, results, artifacts, reports, skipped, fl
 
 def main(argv=None) -> int:
     _configure_stdio()
-    ap = argparse.ArgumentParser(description="阶段门禁唯一执行入口（gate_run，v2.5.0）")
+    ap = argparse.ArgumentParser(description="阶段门禁唯一执行入口（gate_run，v2.6.0）")
     ap.add_argument("--batch", "-b", required=True)
     ap.add_argument("--stage", "-s", required=True, choices=[*STAGES, "all"])
     ap.add_argument("--subject", default="", help="科目名（缺省读 workflow_state 的 batch.subject）")

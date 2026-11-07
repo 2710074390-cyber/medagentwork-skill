@@ -305,7 +305,7 @@ def discover_batches() -> list:
 
 def main(argv=None) -> int:
     _configure_stdio()
-    ap = argparse.ArgumentParser(description="工作区门禁回执审计（gate_audit，v2.5.0）")
+    ap = argparse.ArgumentParser(description="工作区门禁回执审计（gate_audit，v2.6.0）")
     ap.add_argument("--batch", "-b", default="", help="只审计一个批次")
     ap.add_argument("--all", action="store_true", help="审计 最终产物/ 下全部批次（默认）")
     ap.add_argument("--strict", action="store_true", help="在途批次也要求完整回执链")

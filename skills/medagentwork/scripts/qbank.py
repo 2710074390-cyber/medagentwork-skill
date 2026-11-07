@@ -854,7 +854,7 @@ def _require_delivery_receipt(batch: str, input_file, out_path) -> int:
     这是 v2.5.0「防跳过」与宿主无关的一层：不读规则的 agent 软件也会在这里被拒。
     只约束 `qbank.py export-md` 这条路径；绕开 CLI 直接写文件属本地边界（见 README）。
     """
-    print(f'=== 交付口验真：{batch}（v2.5.0 防跳过）===')
+    print(f'=== 交付口验真：{batch}（防跳过层，当前 v2.6.0）===')
     if not gate_ledger.BATCH_RE.match(str(batch)):
         print(f'✗ 交付被拒：BATCH_NAME_INVALID —— 批次目录 {batch!r} 不符合 batchNNN 命名。')
         print('  交付口与 gate_audit 都按 batchNNN 识别批次；不合规命名 = 防护静默失效。')
@@ -908,7 +908,7 @@ def _stamp_export(batch: str, md_path, json_path) -> None:
     gate_ledger.append_stamp(
         led, 'export', artifacts=[md_path, json_path],
         gates=[{'id': 'EXPORT-MD', 'argv': ['qbank.py', 'export-md'], 'rc': 0}],
-        provenance='export-md', tool='qbank@2.5.0', note='交付 MD 生成并绑定字节')
+        provenance='export-md', tool='qbank@2.6.0', note='交付 MD 生成并绑定字节')
     try:
         gate_ledger.write_ledger(led)
         print(f'✓ 已绑定交付 MD 回执：{gate_ledger.ledger_path(batch)}')
